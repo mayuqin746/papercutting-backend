@@ -1,7 +1,7 @@
 //数据库，记录在硬盘里的永久原始数据。
-
 package com.example.kpappercutting.model
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.persistence.*
 
 @Entity
@@ -12,6 +12,9 @@ data class User(
 
     @Column(unique = true, nullable = false)
     val username: String = "",
+
+    // --- 修改这里：删掉 @JsonIgnore，换成下面这个 ---
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(nullable = false)
     val password: String = "",
 
@@ -21,8 +24,6 @@ data class User(
     val followingCount: Int = 0,
     val followerCount: Int = 0,
     val likedCount: Int = 0,
-
-    // --- 修改为 String? 并允许为 null ---
     var avatarUrl: String? = null,
     var backgroundUrl: String? = null
 )

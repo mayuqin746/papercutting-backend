@@ -32,10 +32,10 @@ class AuthController(private val userRepository: UserRepository) {
     fun register(@RequestBody newUser: User): ResponseEntity<Any> {
         // 1. 后端二次校验：长度和字符规则 (数字+英文)
         val regex = Regex("^[a-zA-Z0-9]*$")
-        if (newUser.username.length < 4 || newUser.username.length > 16 || !newUser.username.matches(regex)) {
+        if (newUser.username.length !in 4..16 || !newUser.username.matches(regex)) {
             return ResponseEntity.status(400).body(mapOf("message" to "账号格式不合规"))
         }
-        if (newUser.password.length < 6 || newUser.password.length > 18 || !newUser.password.matches(regex)) {
+        if (newUser.password.length !in 6..18 || !newUser.password.matches(regex)) {
             return ResponseEntity.status(400).body(mapOf("message" to "密码格式不合规"))
         }
 
@@ -47,7 +47,7 @@ class AuthController(private val userRepository: UserRepository) {
         // 3. 初始化纯净数据
         val userToSave = newUser.copy(
             // 初始昵称设为“昵称”，这是你要求的默认展示文字
-            nickname = if (newUser.nickname.isEmpty()) "昵称" else newUser.nickname,
+            nickname = newUser.nickname.ifEmpty { "昵称" },
             region = "", // 初始为空，让用户自己去编辑
             bio = "",    // 初始为空
             followerCount = 0,
@@ -90,11 +90,18 @@ class AuthController(private val userRepository: UserRepository) {
             val uploadDirPath = "D:/kp_uploads"
             val uploadDir = File(uploadDirPath).apply { if (!exists()) mkdirs() }
 
-            val fileName = "${UUID.randomUUID()}_${file.originalFilename}"
+            // 改为（只保留后缀，防止特殊字符导致路径错误）
+            val extension = file.originalFilename?.substringAfterLast(".", "jpg") ?: "jpg"
+            val fileName = "${UUID.randomUUID()}.$extension"
+
             val destFile = File(uploadDir, fileName)
             file.transferTo(destFile)
 
-            val imageUrl = "http://10.21.170.92:8080/images/$fileName"
+            //这个是绝对路径
+            //val imageUrl = "http://10.21.170.92:8080/images/$fileName"
+
+            // 【修改为】：只保留相对路径，前头必须带 /
+            val imageUrl = "/images/$fileName"
 
             val updatedUser = if (type == "avatar") user.copy(avatarUrl = imageUrl)
             else user.copy(backgroundUrl = imageUrl)
@@ -104,6 +111,34 @@ class AuthController(private val userRepository: UserRepository) {
             return ResponseEntity.internalServerError().body(e.message)
         }
     }
+
+    // 修改密码接口，先校验旧密码对不对，对了才允许改新密码。
+    @PostMapping("/change-password")
+    fun changePassword(@RequestBody request: Map<String, String>): ResponseEntity<Any> {
+        val userId = request["userId"]?.toLong() ?: return ResponseEntity.badRequest().body("参数错误")
+        val oldPassword = request["oldPassword"] ?: ""
+        val newPassword = request["newPassword"] ?: ""
+
+        val user = userRepository.findById(userId).orElse(null) ?: return ResponseEntity.notFound().build()
+
+        // 1. 校验旧密码
+        if (user.password != oldPassword) {
+            return ResponseEntity.status(401).body(mapOf("message" to "原密码输入错误"))
+        }
+
+        // 2. 校验新密码格式 (复用注册时的逻辑)
+        val regex = Regex("^[a-zA-Z0-9]*$")
+        if (newPassword.length < 6 || newPassword.length > 18 || !newPassword.matches(regex)) {
+            return ResponseEntity.status(400).body(mapOf("message" to "新密码格式不合规（6-18位数字或字母）"))
+        }
+
+        // 3. 更新并保存
+        val updatedUser = user.copy(password = newPassword)
+        userRepository.save(updatedUser)
+
+        return ResponseEntity.ok(mapOf("message" to "修改成功"))
+    }
+
 
 //
 }

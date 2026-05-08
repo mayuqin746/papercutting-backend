@@ -35,12 +35,10 @@ build/
 
 
 # 编译后的文件
-target/
 *.class
 
 # IDEA 本地配置文件夹
 .idea/
-*.iml
 
 # 日志文件
 *.log
