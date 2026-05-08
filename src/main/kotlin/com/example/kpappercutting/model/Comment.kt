@@ -1,5 +1,6 @@
 package com.example.kpappercutting.model
 
+import com.fasterxml.jackson.annotation.JsonFormat
 import jakarta.persistence.*
 import java.time.LocalDateTime
 
@@ -21,5 +22,8 @@ data class Comment(
     @Column(columnDefinition = "TEXT")
     val content: String = "",
 
-    val createTime: LocalDateTime = LocalDateTime.now()
+    // 在服务端的 Comment 模型中添加
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    val createTime: LocalDateTime = LocalDateTime.now(),
+
 )

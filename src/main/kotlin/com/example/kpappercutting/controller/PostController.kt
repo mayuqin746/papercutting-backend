@@ -23,9 +23,6 @@ class PostController(
     private val postLikeRepository: PostLikeRepository // 注入点赞仓库
 ) {
 
-//    @GetMapping("/all")
-//    fun getAllPosts(): List<Post> = postRepository.findAllByOrderByCreateTimeDesc()
-
     @GetMapping("/all")
     fun getAllPosts(): List<Post> {
         // App 只拉取已通过(status=1)的内容

@@ -17,30 +17,33 @@ class CommentController(
     // 获取动态下的所有评论
     @GetMapping("/post/{postId}")
     fun getComments(@PathVariable postId: Long): List<Comment> =
-        commentRepository.findByPostIdOrderByCreateTimeAsc(postId)
+        commentRepository.findByPost_IdOrderByCreateTimeAsc(postId)
 
     // 发表评论
     @PostMapping("/create")
     fun createComment(@RequestBody body: Map<String, Any>): ResponseEntity<Any> {
-        val postId = (body["postId"] as Number).toLong()
-        val userId = (body["userId"] as Number).toLong()
-        val content = body["content"] as String
+        try {
+            val postId = (body["postId"] as Number).toLong()
+            val userId = (body["userId"] as Number).toLong()
+            val content = body["content"] as String
 
-        // 1. 获取 Post 和 User 对象（不再直接存 ID）
-        val post = postRepository.findById(postId).orElse(null)
-            ?: return ResponseEntity.badRequest().body("帖子不存在")
-        val user = userRepository.findById(userId).orElse(null)
-            ?: return ResponseEntity.badRequest().body("用户不存在")
+            val post = postRepository.findById(postId).orElse(null)
+                ?: return ResponseEntity.badRequest().body(mapOf("error" to "帖子不存在"))
+            val user = userRepository.findById(userId).orElse(null)
+                ?: return ResponseEntity.badRequest().body(mapOf("error" to "用户不存在"))
 
-        // 2. 构造评论对象并保存
-        val comment = Comment(post = post, author = user, content = content)
-        val saved = commentRepository.save(comment)
+            val comment = Comment(post = post, author = user, content = content)
+            commentRepository.save(comment)
 
-        // 3. 更新动态表中的评论计数（使用 copy 确保数据一致性）
-        val updatedPost = post.copy(commentCount = post.commentCount + 1)
-        postRepository.save(updatedPost)
+            // 更新评论数
+            val updatedPost = post.copy(commentCount = post.commentCount + 1)
+            postRepository.save(updatedPost)
 
-        return ResponseEntity.ok(saved)
+            // 【修改点】：返回简单的成功状态，而不是返回整个 Comment 对象
+            return ResponseEntity.ok(mapOf("status" to "success", "message" to "评论成功"))
+        } catch (e: Exception) {
+            return ResponseEntity.status(500).body(mapOf("error" to e.message))
+        }
     }
 
     // 删除评论
