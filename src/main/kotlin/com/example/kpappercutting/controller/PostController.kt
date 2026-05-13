@@ -1,5 +1,3 @@
-//我们需要两个接口：一个获取所有动态，一个发布动态（目前你可以先手动在数据库塞数据，或者快速写个发布接口）。
-
 package com.example.kpappercutting.controller
 
 import com.example.kpappercutting.model.Post
@@ -11,37 +9,36 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.io.File
-import java.util.*
+import java.util.UUID
 
-@CrossOrigin // 重要：允许 Web 前端跨域访问
-
+@CrossOrigin
 @RestController
 @RequestMapping("/api/posts")
 class PostController(
     private val postRepository: PostRepository,
     private val userRepository: UserRepository,
-    private val postLikeRepository: PostLikeRepository // 注入点赞仓库
+    private val postLikeRepository: PostLikeRepository
 ) {
 
     @GetMapping("/all")
     fun getAllPosts(): List<Post> {
-        // App 只拉取已通过(status=1)的内容
         return postRepository.findAllByStatusOrderByCreateTimeDesc(1)
     }
 
-    // --- 新增：获取待审核列表 ---
     @GetMapping("/pending")
     fun getPendingPosts(): List<Post> {
         return postRepository.findAllByStatusOrderByCreateTimeDesc(0)
     }
 
-    // --- 新增：审核操作接口 ---
     @PostMapping("/review")
     fun reviewPost(@RequestBody body: Map<String, Any>): ResponseEntity<Any> {
-        val postId = (body["postId"] as? Number)?.toLong() ?: return ResponseEntity.badRequest().body("缺少ID")
-        val action = body["action"] as? String // "pass" 或 "reject"
+        val postId = (body["postId"] as? Number)?.toLong()
+            ?: return ResponseEntity.badRequest().body("缺少ID")
 
-        val post = postRepository.findById(postId).orElse(null) ?: return ResponseEntity.notFound().build()
+        val action = body["action"] as? String
+
+        val post = postRepository.findById(postId).orElse(null)
+            ?: return ResponseEntity.notFound().build()
 
         if (action == "pass") {
             post.status = 1
@@ -53,29 +50,50 @@ class PostController(
         return ResponseEntity.ok(mapOf("status" to "success"))
     }
 
-    // 1. 动态图片上传接口
+    // 动态图片上传接口
     @PostMapping("/upload")
     fun uploadPostImage(@RequestParam("image") file: MultipartFile): ResponseEntity<Any> {
         return try {
-            val uploadDirPath = "D:/kp_uploads"
-            val uploadDir = File(uploadDirPath).apply { if (!exists()) mkdirs() }
-            val fileName = "${UUID.randomUUID()}.${file.originalFilename?.substringAfterLast(".", "jpg")}"
+            if (file.isEmpty) {
+                return ResponseEntity.badRequest().body(mapOf("message" to "上传文件不能为空"))
+            }
+
+            // 云服务器 Ubuntu 上的图片保存目录
+            val uploadDirPath = "/home/ubuntu/kp_uploads"
+            val uploadDir = File(uploadDirPath).apply {
+                if (!exists()) mkdirs()
+            }
+
+            val extension = file.originalFilename
+                ?.substringAfterLast(".", "jpg")
+                ?.lowercase()
+                ?: "jpg"
+
+            val allowedExtensions = setOf("jpg", "jpeg", "png", "webp", "gif")
+            if (extension !in allowedExtensions) {
+                return ResponseEntity.badRequest().body(mapOf("message" to "只支持 jpg、jpeg、png、webp、gif 图片格式"))
+            }
+
+            val fileName = "${UUID.randomUUID()}.$extension"
             val destFile = File(uploadDir, fileName)
+
             file.transferTo(destFile)
 
-            //val imageUrl = "http://10.21.170.92:8080/images/$fileName"
-            // 【修改为】：只保留相对路径，前头必须带 /
+            // 数据库和前端只使用相对路径
             val imageUrl = "/images/$fileName"
+
             ResponseEntity.ok(mapOf("url" to imageUrl))
         } catch (e: Exception) {
             ResponseEntity.internalServerError().body(e.message)
         }
     }
 
-    // 2. 创建动态接口
+    // 创建动态接口
     @PostMapping("/create")
     fun createPost(@RequestBody postRequest: Map<String, Any>): ResponseEntity<Any> {
-        val userId = (postRequest["userId"] as? Number)?.toLong() ?: return ResponseEntity.badRequest().body("缺少用户ID")
+        val userId = (postRequest["userId"] as? Number)?.toLong()
+            ?: return ResponseEntity.badRequest().body("缺少用户ID")
+
         val content = postRequest["content"] as? String ?: ""
         val imageUrl = postRequest["imageUrl"] as? String
 
@@ -88,36 +106,46 @@ class PostController(
             imageUrl = imageUrl,
             createTime = java.time.LocalDateTime.now()
         )
+
         return ResponseEntity.ok(postRepository.save(newPost))
     }
 
-    // 【新增】获取指定用户的动态列表
     @GetMapping("/user/{userId}")
     fun getUserPosts(@PathVariable userId: Long): List<Post> {
         return postRepository.findByAuthorIdOrderByCreateTimeDesc(userId)
     }
 
-    // 3. 点赞/取消点赞 切换接口
     @PostMapping("/like")
     fun toggleLike(@RequestBody body: Map<String, Long>): ResponseEntity<Any> {
-        val userId = body["userId"] ?: return ResponseEntity.badRequest().body("缺少userId")
-        val postId = body["postId"] ?: return ResponseEntity.badRequest().body("缺少postId")
+        val userId = body["userId"]
+            ?: return ResponseEntity.badRequest().body("缺少userId")
+
+        val postId = body["postId"]
+            ?: return ResponseEntity.badRequest().body("缺少postId")
 
         val existingLike = postLikeRepository.findByUserIdAndPostId(userId, postId)
-        val post = postRepository.findById(postId).orElse(null) ?: return ResponseEntity.notFound().build()
+        val post = postRepository.findById(postId).orElse(null)
+            ?: return ResponseEntity.notFound().build()
 
         return if (existingLike != null) {
             postLikeRepository.delete(existingLike)
-            val updatedPost = postRepository.save(post.copy(likeCount = (post.likeCount - 1).coerceAtLeast(0)))
+
+            val updatedPost = postRepository.save(
+                post.copy(likeCount = (post.likeCount - 1).coerceAtLeast(0))
+            )
+
             ResponseEntity.ok(mapOf("status" to "unliked", "count" to updatedPost.likeCount))
         } else {
             postLikeRepository.save(PostLike(userId = userId, postId = postId))
-            val updatedPost = postRepository.save(post.copy(likeCount = post.likeCount + 1))
+
+            val updatedPost = postRepository.save(
+                post.copy(likeCount = post.likeCount + 1)
+            )
+
             ResponseEntity.ok(mapOf("status" to "liked", "count" to updatedPost.likeCount))
         }
     }
 
-    // 4. 获取用户点赞过的作品列表
     @GetMapping("/liked/{userId}")
     fun getLikedPosts(@PathVariable userId: Long): List<Post> {
         val likedIds = postLikeRepository.findByUserId(userId).map { it.postId }
@@ -127,15 +155,39 @@ class PostController(
     // 删除动态接口
     @DeleteMapping("/{postId}")
     fun deletePost(@PathVariable postId: Long, @RequestParam userId: Long): ResponseEntity<Any> {
-        val post = postRepository.findById(postId).orElse(null) ?: return ResponseEntity.notFound().build()
+        val post = postRepository.findById(postId).orElse(null)
+            ?: return ResponseEntity.notFound().build()
 
-        // 权限校验：只有作者能删
         if (post.author?.id != userId) {
             return ResponseEntity.status(403).body("无权删除他人作品")
         }
 
+        val imageUrl = post.imageUrl
+
         postRepository.delete(post)
-        // 注意：实际开发中还需删除关联的点赞和评论，或者在数据库设置级联删除
+
+        // 尝试删除本地图片文件，失败不影响动态删除成功
+        try {
+            deleteLocalImage(imageUrl)
+        } catch (e: Exception) {
+            println("删除动态图片失败：${e.message}")
+        }
+
         return ResponseEntity.ok(mapOf("status" to "success"))
+    }
+
+    private fun deleteLocalImage(imageUrl: String?) {
+        if (imageUrl.isNullOrBlank()) return
+
+        if (!imageUrl.startsWith("/images/")) return
+
+        val fileName = imageUrl.removePrefix("/images/")
+        if (fileName.contains("/") || fileName.contains("\\")) return
+
+        val file = File("/home/ubuntu/kp_uploads", fileName)
+
+        if (file.exists() && file.isFile) {
+            file.delete()
+        }
     }
 }
