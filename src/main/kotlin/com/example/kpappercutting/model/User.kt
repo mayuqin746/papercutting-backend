@@ -21,8 +21,8 @@ data class User(
     val nickname: String = "",
     val region: String = "",
     val bio: String = "",
-    val followingCount: Int = 0,
-    val followerCount: Int = 0,
+    var followingCount: Int = 0,
+    var followerCount: Int = 0,
     val likedCount: Int = 0,
     var avatarUrl: String? = null,
     var backgroundUrl: String? = null
