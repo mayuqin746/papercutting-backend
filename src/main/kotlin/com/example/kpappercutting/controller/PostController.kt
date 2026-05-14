@@ -6,6 +6,7 @@ import com.example.kpappercutting.repository.PostLikeRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
 import org.springframework.http.ResponseEntity
+import jakarta.transaction.Transactional
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.io.File
@@ -116,6 +117,7 @@ class PostController(
     }
 
     @PostMapping("/like")
+    @Transactional
     fun toggleLike(@RequestBody body: Map<String, Long>): ResponseEntity<Any> {
         val userId = body["userId"]
             ?: return ResponseEntity.badRequest().body("缺少userId")
@@ -133,6 +135,9 @@ class PostController(
             val updatedPost = postRepository.save(
                 post.copy(likeCount = (post.likeCount - 1).coerceAtLeast(0))
             )
+            post.author?.let { author ->
+                userRepository.save(author.copy(likedCount = (author.likedCount - 1).coerceAtLeast(0)))
+            }
 
             ResponseEntity.ok(mapOf("status" to "unliked", "count" to updatedPost.likeCount))
         } else {
@@ -141,6 +146,9 @@ class PostController(
             val updatedPost = postRepository.save(
                 post.copy(likeCount = post.likeCount + 1)
             )
+            post.author?.let { author ->
+                userRepository.save(author.copy(likedCount = author.likedCount + 1))
+            }
 
             ResponseEntity.ok(mapOf("status" to "liked", "count" to updatedPost.likeCount))
         }
