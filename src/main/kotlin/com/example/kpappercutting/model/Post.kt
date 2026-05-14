@@ -14,6 +14,9 @@ data class Post(
     @JoinColumn(name = "user_id") // 数据库里依然叫 user_id
     val author: User? = null,
 
+    @Column(length = 80)
+    val title: String = "",
+
     @Column(columnDefinition = "TEXT")
     val content: String = "",
     val imageUrl: String? = null,

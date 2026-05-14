@@ -96,13 +96,19 @@ class PostController(
             ?: return ResponseEntity.badRequest().body("缺少用户ID")
 
         val content = postRequest["content"] as? String ?: ""
+        val title = (postRequest["title"] as? String)?.trim() ?: ""
         val imageUrl = postRequest["imageUrl"] as? String
+
+        if (title.isBlank()) {
+            return ResponseEntity.badRequest().body(mapOf("message" to "缺少作品标题"))
+        }
 
         val user = userRepository.findById(userId).orElse(null)
             ?: return ResponseEntity.status(404).body("用户不存在")
 
         val newPost = Post(
             author = user,
+            title = title.take(80),
             content = content,
             imageUrl = imageUrl,
             createTime = java.time.LocalDateTime.now()
