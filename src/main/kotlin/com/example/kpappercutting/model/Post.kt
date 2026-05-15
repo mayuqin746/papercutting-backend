@@ -16,6 +16,8 @@ data class Post(
 
     @Column(columnDefinition = "TEXT")
     val content: String = "",
+    @Column(length = 120)
+    val category: String = "",
     val imageUrl: String? = null,
     val likeCount: Int = 0,
     val commentCount: Int = 0,

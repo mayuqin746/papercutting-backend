@@ -96,6 +96,7 @@ class PostController(
             ?: return ResponseEntity.badRequest().body("缺少用户ID")
 
         val content = postRequest["content"] as? String ?: ""
+        val category = sanitizeCategories(postRequest["category"] as? String)
         val imageUrl = postRequest["imageUrl"] as? String
 
         val user = userRepository.findById(userId).orElse(null)
@@ -104,11 +105,37 @@ class PostController(
         val newPost = Post(
             author = user,
             content = content,
+            category = category,
             imageUrl = imageUrl,
             createTime = java.time.LocalDateTime.now()
         )
 
         return ResponseEntity.ok(postRepository.save(newPost))
+    }
+
+    private fun sanitizeCategories(rawCategory: String?): String {
+        if (rawCategory.isNullOrBlank()) return ""
+
+        val allowedCategories = setOf(
+            "窗花",
+            "团花",
+            "生肖",
+            "人物",
+            "动物",
+            "植物",
+            "节日",
+            "传统纹样",
+            "AI剪纸",
+            "自由创作"
+        )
+
+        return rawCategory
+            .split(",")
+            .map { it.trim() }
+            .filter { it in allowedCategories }
+            .distinct()
+            .take(10)
+            .joinToString(",")
     }
 
     @GetMapping("/user/{userId}")
