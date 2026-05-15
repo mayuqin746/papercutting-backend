@@ -2,6 +2,7 @@ package com.example.kpappercutting.controller
 
 import com.example.kpappercutting.model.Post
 import com.example.kpappercutting.model.PostLike
+import com.example.kpappercutting.model.User
 import com.example.kpappercutting.repository.PostLikeRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
@@ -10,6 +11,7 @@ import jakarta.transaction.Transactional
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.io.File
+import java.time.LocalDateTime
 import java.util.UUID
 
 @CrossOrigin
@@ -22,8 +24,11 @@ class PostController(
 ) {
 
     @GetMapping("/all")
-    fun getAllPosts(): List<Post> {
-        return postRepository.findAllByStatusOrderByCreateTimeDesc(1)
+    fun getAllPosts(@RequestParam(required = false) viewerId: Long?): List<PostResponse> {
+        return withLikedState(
+            posts = postRepository.findAllByStatusOrderByCreateTimeDesc(1),
+            viewerId = viewerId
+        )
     }
 
     @GetMapping("/pending")
@@ -116,7 +121,7 @@ class PostController(
             createTime = java.time.LocalDateTime.now()
         )
 
-        return ResponseEntity.ok(postRepository.save(newPost))
+        return ResponseEntity.ok(toPostResponse(postRepository.save(newPost), userId))
     }
 
     private fun sanitizeCategories(rawCategory: String?): String {
@@ -156,8 +161,14 @@ class PostController(
     }
 
     @GetMapping("/user/{userId}")
-    fun getUserPosts(@PathVariable userId: Long): List<Post> {
-        return postRepository.findByAuthorIdOrderByCreateTimeDesc(userId)
+    fun getUserPosts(
+        @PathVariable userId: Long,
+        @RequestParam(required = false) viewerId: Long?
+    ): List<PostResponse> {
+        return withLikedState(
+            posts = postRepository.findByAuthorIdOrderByCreateTimeDesc(userId),
+            viewerId = viewerId
+        )
     }
 
     @PostMapping("/like")
@@ -199,9 +210,15 @@ class PostController(
     }
 
     @GetMapping("/liked/{userId}")
-    fun getLikedPosts(@PathVariable userId: Long): List<Post> {
+    fun getLikedPosts(
+        @PathVariable userId: Long,
+        @RequestParam(required = false) viewerId: Long?
+    ): List<PostResponse> {
         val likedIds = postLikeRepository.findByUserId(userId).map { it.postId }
-        return postRepository.findAllById(likedIds).reversed()
+        return withLikedState(
+            posts = postRepository.findAllById(likedIds).reversed(),
+            viewerId = viewerId ?: userId
+        )
     }
 
     // 删除动态接口
@@ -246,4 +263,53 @@ class PostController(
             file.delete()
         }
     }
+
+    private fun withLikedState(posts: List<Post>, viewerId: Long?): List<PostResponse> {
+        val likedPostIds = viewerId
+            ?.let { postLikeRepository.findByUserId(it).map { like -> like.postId }.toSet() }
+            .orEmpty()
+
+        return posts.map { post ->
+            toPostResponse(post, isLiked = post.id in likedPostIds)
+        }
+    }
+
+    private fun toPostResponse(post: Post, viewerId: Long?): PostResponse {
+        val isLiked = viewerId?.let { postLikeRepository.findByUserIdAndPostId(it, post.id) != null } ?: false
+        return toPostResponse(post, isLiked)
+    }
+
+    private fun toPostResponse(post: Post, isLiked: Boolean): PostResponse {
+        return PostResponse(
+            id = post.id,
+            author = post.author,
+            content = post.content,
+            category = post.category,
+            imageUrl = post.imageUrl,
+            imageUrls = post.imageUrls,
+            showLocation = post.showLocation,
+            locationName = post.locationName,
+            likeCount = post.likeCount,
+            commentCount = post.commentCount,
+            createTime = post.createTime,
+            status = post.status,
+            isLiked = isLiked
+        )
+    }
 }
+
+data class PostResponse(
+    val id: Long,
+    val author: User?,
+    val content: String,
+    val category: String,
+    val imageUrl: String?,
+    val imageUrls: String?,
+    val showLocation: Boolean,
+    val locationName: String,
+    val likeCount: Int,
+    val commentCount: Int,
+    val createTime: LocalDateTime,
+    val status: Int,
+    val isLiked: Boolean
+)
