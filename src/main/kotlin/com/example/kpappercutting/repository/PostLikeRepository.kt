@@ -11,4 +11,6 @@ interface PostLikeRepository : JpaRepository<PostLike, Long> {
 
     // 获取用户点赞过的所有作品ID
     fun findByUserId(userId: Long): List<PostLike>
+
+    fun deleteByPostId(postId: Long)
 }

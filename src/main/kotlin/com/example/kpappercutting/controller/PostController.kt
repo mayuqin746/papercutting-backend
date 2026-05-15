@@ -225,6 +225,7 @@ class PostController(
 
     // 删除动态接口
     @DeleteMapping("/{postId}")
+    @Transactional
     fun deletePost(@PathVariable postId: Long, @RequestParam userId: Long): ResponseEntity<Any> {
         val post = postRepository.findById(postId).orElse(null)
             ?: return ResponseEntity.notFound().build()
@@ -239,11 +240,8 @@ class PostController(
             .filter { it.isNotEmpty() }
             .ifEmpty { listOfNotNull(post.imageUrl) }
 
-        val comments = commentRepository.findByPost_IdOrderByCreateTimeAsc(postId)
-        if (comments.isNotEmpty()) {
-            commentRepository.deleteAll(comments)
-        }
-
+        commentRepository.deleteByPost_Id(postId)
+        postLikeRepository.deleteByPostId(postId)
         postRepository.delete(post)
 
         // 尝试删除本地图片文件，失败不影响动态删除成功
