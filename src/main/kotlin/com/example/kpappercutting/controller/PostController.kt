@@ -3,6 +3,7 @@ package com.example.kpappercutting.controller
 import com.example.kpappercutting.model.Post
 import com.example.kpappercutting.model.PostLike
 import com.example.kpappercutting.model.User
+import com.example.kpappercutting.repository.CommentRepository
 import com.example.kpappercutting.repository.PostLikeRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
@@ -20,7 +21,8 @@ import java.util.UUID
 class PostController(
     private val postRepository: PostRepository,
     private val userRepository: UserRepository,
-    private val postLikeRepository: PostLikeRepository
+    private val postLikeRepository: PostLikeRepository,
+    private val commentRepository: CommentRepository
 ) {
 
     @GetMapping("/all")
@@ -236,6 +238,11 @@ class PostController(
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .ifEmpty { listOfNotNull(post.imageUrl) }
+
+        val comments = commentRepository.findByPost_IdOrderByCreateTimeAsc(postId)
+        if (comments.isNotEmpty()) {
+            commentRepository.deleteAll(comments)
+        }
 
         postRepository.delete(post)
 
