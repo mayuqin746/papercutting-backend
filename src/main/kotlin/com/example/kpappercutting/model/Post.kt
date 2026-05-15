@@ -19,6 +19,11 @@ data class Post(
     @Column(length = 120)
     val category: String = "",
     val imageUrl: String? = null,
+    @Column(columnDefinition = "TEXT")
+    val imageUrls: String? = "",
+    val showLocation: Boolean = false,
+    @Column(length = 80)
+    val locationName: String = "",
     val likeCount: Int = 0,
     val commentCount: Int = 0,
     val createTime: LocalDateTime = LocalDateTime.now(),

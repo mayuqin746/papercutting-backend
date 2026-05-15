@@ -98,6 +98,9 @@ class PostController(
         val content = postRequest["content"] as? String ?: ""
         val category = sanitizeCategories(postRequest["category"] as? String)
         val imageUrl = postRequest["imageUrl"] as? String
+        val imageUrls = sanitizeImageUrls(postRequest["imageUrls"] as? String, imageUrl)
+        val showLocation = postRequest["showLocation"] as? Boolean ?: false
+        val locationName = (postRequest["locationName"] as? String)?.trim()?.take(80) ?: ""
 
         val user = userRepository.findById(userId).orElse(null)
             ?: return ResponseEntity.status(404).body("用户不存在")
@@ -107,6 +110,9 @@ class PostController(
             content = content,
             category = category,
             imageUrl = imageUrl,
+            imageUrls = imageUrls,
+            showLocation = showLocation && locationName.isNotBlank(),
+            locationName = if (showLocation) locationName else "",
             createTime = java.time.LocalDateTime.now()
         )
 
@@ -136,6 +142,17 @@ class PostController(
             .distinct()
             .take(10)
             .joinToString(",")
+    }
+
+    private fun sanitizeImageUrls(rawImageUrls: String?, fallbackImageUrl: String?): String {
+        val urls = (rawImageUrls ?: fallbackImageUrl.orEmpty())
+            .split(",")
+            .map { it.trim() }
+            .filter { it.startsWith("/images/") }
+            .distinct()
+            .take(9)
+
+        return urls.joinToString(",")
     }
 
     @GetMapping("/user/{userId}")
@@ -197,13 +214,17 @@ class PostController(
             return ResponseEntity.status(403).body("无权删除他人作品")
         }
 
-        val imageUrl = post.imageUrl
+        val imageUrls = post.imageUrls.orEmpty()
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOfNotNull(post.imageUrl) }
 
         postRepository.delete(post)
 
         // 尝试删除本地图片文件，失败不影响动态删除成功
         try {
-            deleteLocalImage(imageUrl)
+            imageUrls.forEach { deleteLocalImage(it) }
         } catch (e: Exception) {
             println("删除动态图片失败：${e.message}")
         }
