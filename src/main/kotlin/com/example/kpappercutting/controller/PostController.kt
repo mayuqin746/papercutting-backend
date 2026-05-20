@@ -38,6 +38,35 @@ class PostController(
         return postRepository.findAllByStatusOrderByCreateTimeDesc(0)
     }
 
+    @GetMapping("/admin/review-list")
+    fun getAdminReviewPosts(): List<PostResponse> {
+        return postRepository.findAllByOrderByCreateTimeDesc().map { post ->
+            toPostResponse(post, isLiked = false)
+        }
+    }
+
+    @GetMapping("/admin/grouped-by-user")
+    fun getAdminPostsGroupedByUser(): List<UserPostReviewGroup> {
+        return postRepository.findAllByOrderByCreateTimeDesc()
+            .groupBy { it.author?.id ?: 0L }
+            .values
+            .map { posts ->
+                val author = posts.firstOrNull()?.author
+                UserPostReviewGroup(
+                    author = author,
+                    totalCount = posts.size,
+                    pendingCount = posts.count { it.status == 0 },
+                    approvedCount = posts.count { it.status == 1 },
+                    rejectedCount = posts.count { it.status == 2 },
+                    posts = posts.map { toPostResponse(it, isLiked = false) }
+                )
+            }
+            .sortedWith(
+                compareByDescending<UserPostReviewGroup> { it.pendingCount }
+                    .thenByDescending { it.posts.firstOrNull()?.createTime ?: LocalDateTime.MIN }
+            )
+    }
+
     @PostMapping("/review")
     fun reviewPost(@RequestBody body: Map<String, Any>): ResponseEntity<Any> {
         val postId = (body["postId"] as? Number)?.toLong()
@@ -225,6 +254,7 @@ class PostController(
 
     // 删除动态接口
     @DeleteMapping("/{postId}")
+    @Transactional
     fun deletePost(@PathVariable postId: Long, @RequestParam userId: Long): ResponseEntity<Any> {
         val post = postRepository.findById(postId).orElse(null)
             ?: return ResponseEntity.notFound().build()
@@ -239,11 +269,8 @@ class PostController(
             .filter { it.isNotEmpty() }
             .ifEmpty { listOfNotNull(post.imageUrl) }
 
-        val comments = commentRepository.findByPost_IdOrderByCreateTimeAsc(postId)
-        if (comments.isNotEmpty()) {
-            commentRepository.deleteAll(comments)
-        }
-
+        commentRepository.deleteByPost_Id(postId)
+        postLikeRepository.deleteByPostId(postId)
         postRepository.delete(post)
 
         // 尝试删除本地图片文件，失败不影响动态删除成功
@@ -319,4 +346,13 @@ data class PostResponse(
     val createTime: LocalDateTime,
     val status: Int,
     val isLiked: Boolean
+)
+
+data class UserPostReviewGroup(
+    val author: User?,
+    val totalCount: Int,
+    val pendingCount: Int,
+    val approvedCount: Int,
+    val rejectedCount: Int,
+    val posts: List<PostResponse>
 )
