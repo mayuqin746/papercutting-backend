@@ -2,7 +2,11 @@ package com.example.kpappercutting.controller
 
 import com.example.kpappercutting.model.Post
 import com.example.kpappercutting.model.PostLike
+import com.example.kpappercutting.model.ChallengeParticipant
 import com.example.kpappercutting.model.User
+import com.example.kpappercutting.repository.ChallengeAttemptRepository
+import com.example.kpappercutting.repository.ChallengeParticipantRepository
+import com.example.kpappercutting.repository.ChallengeRepository
 import com.example.kpappercutting.repository.CommentRepository
 import com.example.kpappercutting.repository.PostLikeRepository
 import com.example.kpappercutting.repository.PostRepository
@@ -22,7 +26,10 @@ class PostController(
     private val postRepository: PostRepository,
     private val userRepository: UserRepository,
     private val postLikeRepository: PostLikeRepository,
-    private val commentRepository: CommentRepository
+    private val commentRepository: CommentRepository,
+    private val challengeRepository: ChallengeRepository,
+    private val challengeAttemptRepository: ChallengeAttemptRepository,
+    private val challengeParticipantRepository: ChallengeParticipantRepository
 ) {
 
     @GetMapping("/all")
@@ -83,7 +90,10 @@ class PostController(
             post.status = 2 // 拒绝
         }
 
-        postRepository.save(post)
+        val savedPost = postRepository.save(post)
+        if (action == "pass") {
+            registerChallengeParticipationIfEligible(savedPost)
+        }
         return ResponseEntity.ok(mapOf("status" to "success"))
     }
 
@@ -158,18 +168,11 @@ class PostController(
     private fun sanitizeCategories(rawCategory: String?): String {
         if (rawCategory.isNullOrBlank()) return ""
 
-        val allowedCategories = setOf(
-            "窗花",
-            "团花",
-            "生肖",
-            "人物",
-            "动物",
-            "植物",
-            "节日",
-            "传统纹样",
-            "AI剪纸",
-            "自由创作"
-        )
+        val activeChallengeTags = challengeRepository
+            .findByStatusAndDeadlineAfterOrderByStartTimeDescIdDesc(CHALLENGE_STATUS_PUBLISHED, LocalDateTime.now())
+            .map { it.challengeTag.trim() }
+            .filter { it.isNotEmpty() }
+        val allowedCategories = (BASE_POST_CATEGORIES + activeChallengeTags).toSet()
 
         return rawCategory
             .split(",")
@@ -328,6 +331,36 @@ class PostController(
             createTime = post.createTime,
             status = post.status,
             isLiked = isLiked
+        )
+    }
+
+    private fun registerChallengeParticipationIfEligible(post: Post) {
+        val authorId = post.author?.id ?: return
+        val categories = post.category
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+
+        if (categories.isEmpty()) return
+
+        val challenge = challengeRepository.findByStatusOrderByStartTimeDescIdDesc(CHALLENGE_STATUS_PUBLISHED)
+            .firstOrNull { challenge ->
+                challenge.challengeTag in categories &&
+                        !post.createTime.isBefore(challenge.startTime) &&
+                        !post.createTime.isAfter(challenge.deadline)
+            } ?: return
+        val attempt = challengeAttemptRepository.findByChallengeIdAndUserId(challenge.id, authorId) ?: return
+        if (attempt.attemptTime.isAfter(post.createTime)) return
+        if (challengeParticipantRepository.existsByChallengeIdAndUserId(challenge.id, authorId)) return
+
+        challengeParticipantRepository.save(
+            ChallengeParticipant(
+                challengeId = challenge.id,
+                userId = authorId,
+                postId = post.id,
+                participateTime = LocalDateTime.now()
+            )
         )
     }
 }
