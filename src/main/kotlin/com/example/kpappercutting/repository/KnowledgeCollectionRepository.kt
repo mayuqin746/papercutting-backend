@@ -6,6 +6,6 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface KnowledgeCollectionRepository : JpaRepository<KnowledgeCollection, Long> {
-    fun findByUserIdAndKnowledgeId(userId: Long, knowledgeId: Int): KnowledgeCollection?
+    fun findByUserIdAndKnowledgeId(userId: Long, knowledgeId: Long): KnowledgeCollection?
     fun findByUserIdOrderByCreateTimeAsc(userId: Long): List<KnowledgeCollection>
 }
