@@ -135,6 +135,35 @@ class PostController(
         }
     }
 
+    @PostMapping("/upload-draft")
+    fun uploadPostDraft(@RequestParam("draft") file: MultipartFile): ResponseEntity<Any> {
+        return try {
+            if (file.isEmpty) {
+                return ResponseEntity.badRequest().body(mapOf("message" to "上传草稿不能为空"))
+            }
+
+            val contentType = file.contentType.orEmpty().lowercase()
+            val originalExtension = file.originalFilename
+                ?.substringAfterLast(".", "json")
+                ?.lowercase()
+                ?: "json"
+            if (originalExtension != "json" && !contentType.contains("json")) {
+                return ResponseEntity.badRequest().body(mapOf("message" to "只支持 JSON 草稿文件"))
+            }
+
+            val uploadDir = File("/home/ubuntu/kp_drafts").apply {
+                if (!exists()) mkdirs()
+            }
+            val fileName = "${UUID.randomUUID()}.json"
+            val destFile = File(uploadDir, fileName)
+            file.transferTo(destFile)
+
+            ResponseEntity.ok(mapOf("url" to "/drafts/$fileName"))
+        } catch (e: Exception) {
+            ResponseEntity.internalServerError().body(e.message)
+        }
+    }
+
     // 创建动态接口
     @PostMapping("/create")
     fun createPost(@RequestBody postRequest: Map<String, Any>): ResponseEntity<Any> {
@@ -147,6 +176,12 @@ class PostController(
         val imageUrls = sanitizeImageUrls(postRequest["imageUrls"] as? String, imageUrl)
         val showLocation = postRequest["showLocation"] as? Boolean ?: false
         val locationName = (postRequest["locationName"] as? String)?.trim()?.take(80) ?: ""
+        val shareType = sanitizeShareType(postRequest["shareType"] as? String)
+        val draftUrl = sanitizeDraftUrl(postRequest["draftUrl"] as? String)
+
+        if (shareType == SHARE_TYPE_DRAFT && draftUrl == null) {
+            return ResponseEntity.badRequest().body("草稿动态缺少草稿文件")
+        }
 
         val user = userRepository.findById(userId).orElse(null)
             ?: return ResponseEntity.status(404).body("用户不存在")
@@ -159,6 +194,8 @@ class PostController(
             imageUrls = imageUrls,
             showLocation = showLocation && locationName.isNotBlank(),
             locationName = if (showLocation) locationName else "",
+            shareType = shareType,
+            draftUrl = if (shareType == SHARE_TYPE_DRAFT) draftUrl else null,
             createTime = java.time.LocalDateTime.now()
         )
 
@@ -192,6 +229,22 @@ class PostController(
             .take(9)
 
         return urls.joinToString(",")
+    }
+
+    private fun sanitizeShareType(rawShareType: String?): String {
+        return if (rawShareType?.uppercase() == SHARE_TYPE_DRAFT) {
+            SHARE_TYPE_DRAFT
+        } else {
+            SHARE_TYPE_RESULT
+        }
+    }
+
+    private fun sanitizeDraftUrl(rawDraftUrl: String?): String? {
+        val value = rawDraftUrl?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        if (!value.startsWith("/drafts/") || !value.endsWith(".json")) return null
+        val fileName = value.removePrefix("/drafts/")
+        if (fileName.contains("/") || fileName.contains("\\") || fileName.contains("..")) return null
+        return value
     }
 
     @GetMapping("/user/{userId}")
@@ -271,6 +324,7 @@ class PostController(
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .ifEmpty { listOfNotNull(post.imageUrl) }
+        val draftUrl = post.draftUrl
 
         commentRepository.deleteByPost_Id(postId)
         postLikeRepository.deleteByPostId(postId)
@@ -279,8 +333,9 @@ class PostController(
         // 尝试删除本地图片文件，失败不影响动态删除成功
         try {
             imageUrls.forEach { deleteLocalImage(it) }
+            deleteLocalDraft(draftUrl)
         } catch (e: Exception) {
-            println("删除动态图片失败：${e.message}")
+            println("删除动态资源失败：${e.message}")
         }
 
         return ResponseEntity.ok(mapOf("status" to "success"))
@@ -296,6 +351,15 @@ class PostController(
 
         val file = File("/home/ubuntu/kp_uploads", fileName)
 
+        if (file.exists() && file.isFile) {
+            file.delete()
+        }
+    }
+
+    private fun deleteLocalDraft(draftUrl: String?) {
+        val safeDraftUrl = sanitizeDraftUrl(draftUrl) ?: return
+        val fileName = safeDraftUrl.removePrefix("/drafts/")
+        val file = File("/home/ubuntu/kp_drafts", fileName)
         if (file.exists() && file.isFile) {
             file.delete()
         }
@@ -326,6 +390,8 @@ class PostController(
             imageUrls = post.imageUrls,
             showLocation = post.showLocation,
             locationName = post.locationName,
+            shareType = post.shareType,
+            draftUrl = post.draftUrl,
             likeCount = post.likeCount,
             commentCount = post.commentCount,
             createTime = post.createTime,
@@ -374,12 +440,17 @@ data class PostResponse(
     val imageUrls: String?,
     val showLocation: Boolean,
     val locationName: String,
+    val shareType: String,
+    val draftUrl: String?,
     val likeCount: Int,
     val commentCount: Int,
     val createTime: LocalDateTime,
     val status: Int,
     val isLiked: Boolean
 )
+
+private const val SHARE_TYPE_RESULT = "RESULT"
+private const val SHARE_TYPE_DRAFT = "DRAFT"
 
 data class UserPostReviewGroup(
     val author: User?,

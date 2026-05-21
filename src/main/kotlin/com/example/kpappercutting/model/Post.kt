@@ -24,6 +24,10 @@ data class Post(
     val showLocation: Boolean = false,
     @Column(length = 80)
     val locationName: String = "",
+    @Column(length = 20)
+    val shareType: String = "RESULT",
+    @Column(length = 255)
+    val draftUrl: String? = null,
     val likeCount: Int = 0,
     val commentCount: Int = 0,
     val createTime: LocalDateTime = LocalDateTime.now(),
