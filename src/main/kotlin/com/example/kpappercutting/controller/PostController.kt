@@ -144,17 +144,17 @@ class PostController(
 
             val contentType = file.contentType.orEmpty().lowercase()
             val originalExtension = file.originalFilename
-                ?.substringAfterLast(".", "json")
+                ?.substringAfterLast(".", "zip")
                 ?.lowercase()
-                ?: "json"
-            if (originalExtension != "json" && !contentType.contains("json")) {
-                return ResponseEntity.badRequest().body(mapOf("message" to "只支持 JSON 草稿文件"))
+                ?: "zip"
+            if (originalExtension != "zip" && !contentType.contains("zip")) {
+                return ResponseEntity.badRequest().body(mapOf("message" to "只支持 ZIP 草稿文件"))
             }
 
             val uploadDir = File("/home/ubuntu/kp_drafts").apply {
                 if (!exists()) mkdirs()
             }
-            val fileName = "${UUID.randomUUID()}.json"
+            val fileName = "${UUID.randomUUID()}.zip"
             val destFile = File(uploadDir, fileName)
             file.transferTo(destFile)
 
@@ -241,7 +241,7 @@ class PostController(
 
     private fun sanitizeDraftUrl(rawDraftUrl: String?): String? {
         val value = rawDraftUrl?.trim()?.takeIf { it.isNotBlank() } ?: return null
-        if (!value.startsWith("/drafts/") || !value.endsWith(".json")) return null
+        if (!value.startsWith("/drafts/") || !value.endsWith(".zip")) return null
         val fileName = value.removePrefix("/drafts/")
         if (fileName.contains("/") || fileName.contains("\\") || fileName.contains("..")) return null
         return value
