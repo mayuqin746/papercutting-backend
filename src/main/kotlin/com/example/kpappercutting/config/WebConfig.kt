@@ -12,5 +12,7 @@ class WebConfig : WebMvcConfigurer {
             .addResourceLocations("file:/home/ubuntu/kp_uploads/")
         registry.addResourceHandler("/drafts/**")
             .addResourceLocations("file:/home/ubuntu/kp_drafts/")
+        registry.addResourceHandler("/user-drafts/**")
+            .addResourceLocations("file:/home/ubuntu/kp_user_drafts/")
     }
 }
