@@ -1,6 +1,8 @@
 package com.example.kpappercutting.controller
 
 import com.example.kpappercutting.model.Post
+import com.example.kpappercutting.model.InteractionNotification
+import com.example.kpappercutting.model.NOTIFICATION_TYPE_LIKE
 import com.example.kpappercutting.model.PostLike
 import com.example.kpappercutting.model.ChallengeParticipant
 import com.example.kpappercutting.model.User
@@ -8,6 +10,7 @@ import com.example.kpappercutting.repository.ChallengeAttemptRepository
 import com.example.kpappercutting.repository.ChallengeParticipantRepository
 import com.example.kpappercutting.repository.ChallengeRepository
 import com.example.kpappercutting.repository.CommentRepository
+import com.example.kpappercutting.repository.InteractionNotificationRepository
 import com.example.kpappercutting.repository.PostLikeRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
@@ -25,6 +28,7 @@ import java.util.UUID
 class PostController(
     private val postRepository: PostRepository,
     private val userRepository: UserRepository,
+    private val notificationRepository: InteractionNotificationRepository,
     private val postLikeRepository: PostLikeRepository,
     private val commentRepository: CommentRepository,
     private val challengeRepository: ChallengeRepository,
@@ -38,6 +42,69 @@ class PostController(
             posts = postRepository.findAllByStatusOrderByCreateTimeDesc(1),
             viewerId = viewerId
         )
+    }
+
+    @GetMapping("/search")
+    fun searchPosts(
+        @RequestParam keyword: String,
+        @RequestParam(required = false) viewerId: Long?
+    ): List<PostResponse> {
+        val safeKeyword = keyword.trim().take(120)
+        if (safeKeyword.isBlank()) return emptyList()
+        val searchTerms = buildPostSearchTerms(safeKeyword)
+        val draftFilter = resolveDraftSearchFilter(safeKeyword)
+        return withLikedState(
+            posts = postRepository.findAllByStatusOrderByLikeCountDescCreateTimeDesc(1)
+                .filter { post -> matchesPostSearch(post, searchTerms, draftFilter) },
+            viewerId = viewerId
+        )
+    }
+
+    private fun buildPostSearchTerms(keyword: String): List<String> {
+        return keyword
+            .replace("是否是草稿", " ")
+            .replace("是不是草稿", " ")
+            .replace("不是草稿", " ")
+            .replace("非草稿", " ")
+            .replace("草稿", " ")
+            .replace("draft", " ", ignoreCase = true)
+            .replace("普通作品", " ")
+            .replace("普通动态", " ")
+            .split(Regex("\\s+"))
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    private fun resolveDraftSearchFilter(keyword: String): Boolean? {
+        val lowerKeyword = keyword.lowercase()
+        return when {
+            "不是草稿" in lowerKeyword || "非草稿" in lowerKeyword ||
+                    "普通作品" in lowerKeyword || "普通动态" in lowerKeyword -> false
+            "草稿" in lowerKeyword || "draft" in lowerKeyword -> true
+            else -> null
+        }
+    }
+
+    private fun matchesPostSearch(
+        post: Post,
+        searchTerms: List<String>,
+        draftFilter: Boolean?
+    ): Boolean {
+        if (draftFilter != null && (post.shareType == SHARE_TYPE_DRAFT) != draftFilter) {
+            return false
+        }
+        if (searchTerms.isEmpty()) return draftFilter != null
+        return searchTerms.all { term ->
+            listOf(
+                post.category,
+                post.content,
+                post.locationName,
+                post.author?.nickname.orEmpty(),
+                post.author?.username.orEmpty(),
+                if (post.shareType == SHARE_TYPE_DRAFT) "草稿 draft 可编辑" else "普通 非草稿"
+            ).any { value -> value.lowercase().contains(term) }
+        }
     }
 
     @GetMapping("/pending")
@@ -273,6 +340,14 @@ class PostController(
 
         return if (existingLike != null) {
             postLikeRepository.delete(existingLike)
+            post.author?.id?.let { recipientId ->
+                notificationRepository.deleteByRecipientIdAndActorIdAndPostIdAndType(
+                    recipientId = recipientId,
+                    actorId = userId,
+                    postId = postId,
+                    type = NOTIFICATION_TYPE_LIKE
+                )
+            }
 
             val updatedPost = postRepository.save(
                 post.copy(likeCount = (post.likeCount - 1).coerceAtLeast(0))
@@ -284,6 +359,24 @@ class PostController(
             ResponseEntity.ok(mapOf("status" to "unliked", "count" to updatedPost.likeCount))
         } else {
             postLikeRepository.save(PostLike(userId = userId, postId = postId))
+            val actor = userRepository.findById(userId).orElse(null)
+            val recipient = post.author
+            if (actor != null && recipient != null && recipient.id != actor.id) {
+                notificationRepository.deleteByRecipientIdAndActorIdAndPostIdAndType(
+                    recipientId = recipient.id,
+                    actorId = actor.id,
+                    postId = postId,
+                    type = NOTIFICATION_TYPE_LIKE
+                )
+                notificationRepository.save(
+                    InteractionNotification(
+                        recipient = recipient,
+                        actor = actor,
+                        post = post,
+                        type = NOTIFICATION_TYPE_LIKE
+                    )
+                )
+            }
 
             val updatedPost = postRepository.save(
                 post.copy(likeCount = post.likeCount + 1)
@@ -328,6 +421,7 @@ class PostController(
 
         commentRepository.deleteByPost_Id(postId)
         postLikeRepository.deleteByPostId(postId)
+        notificationRepository.deleteByPostId(postId)
         postRepository.delete(post)
 
         // 尝试删除本地图片文件，失败不影响动态删除成功

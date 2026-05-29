@@ -1,9 +1,13 @@
 package com.example.kpappercutting.controller
 
 import com.example.kpappercutting.model.Comment
+import com.example.kpappercutting.model.InteractionNotification
+import com.example.kpappercutting.model.NOTIFICATION_TYPE_COMMENT
 import com.example.kpappercutting.repository.CommentRepository
+import com.example.kpappercutting.repository.InteractionNotificationRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
+import jakarta.transaction.Transactional
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -12,6 +16,7 @@ import org.springframework.web.bind.annotation.*
 class CommentController(
     private val commentRepository: CommentRepository,
     private val postRepository: PostRepository,
+    private val notificationRepository: InteractionNotificationRepository,
     private val userRepository: UserRepository
 ) {
     // 获取动态下的所有评论
@@ -33,7 +38,20 @@ class CommentController(
                 ?: return ResponseEntity.badRequest().body(mapOf("error" to "用户不存在"))
 
             val comment = Comment(post = post, author = user, content = content)
-            commentRepository.save(comment)
+            val savedComment = commentRepository.save(comment)
+            val recipient = post.author
+            if (recipient != null && recipient.id != user.id) {
+                notificationRepository.save(
+                    InteractionNotification(
+                        recipient = recipient,
+                        actor = user,
+                        post = post,
+                        type = NOTIFICATION_TYPE_COMMENT,
+                        commentId = savedComment.id,
+                        commentContent = content
+                    )
+                )
+            }
 
             // 更新评论数
             val updatedPost = post.copy(commentCount = post.commentCount + 1)
@@ -48,6 +66,7 @@ class CommentController(
 
     // 删除评论
     @DeleteMapping("/{commentId}")
+    @Transactional
     fun deleteComment(@PathVariable commentId: Long, @RequestParam userId: Long): ResponseEntity<Any> {
         val comment = commentRepository.findById(commentId).orElse(null)
             ?: return ResponseEntity.notFound().build()
@@ -57,6 +76,7 @@ class CommentController(
 
         val post = comment.post // 获取该评论关联的动态
         commentRepository.delete(comment)
+        notificationRepository.deleteByCommentIdAndType(commentId, NOTIFICATION_TYPE_COMMENT)
 
         // 评论数减1逻辑
         if (post != null) {
