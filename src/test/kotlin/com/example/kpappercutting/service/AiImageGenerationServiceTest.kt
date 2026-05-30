@@ -25,14 +25,14 @@ class AiImageGenerationServiceTest {
     }
 
     @Test
-    fun `image to image requires reference image and returns one image`() {
+    fun `image to image requires reference image and returns two images`() {
         val service = AiImageGenerationService(FakeGateway())
 
         assertThrows(IllegalArgumentException::class.java) {
             service.generate(
                 prompt = "做成窗花",
                 mode = AiImageGenerationMode.IMAGE_TO_IMAGE,
-                count = 1,
+                count = 2,
                 imageDataUrl = null
             )
         }
@@ -41,11 +41,26 @@ class AiImageGenerationServiceTest {
         val response = AiImageGenerationService(gateway).generate(
             prompt = "做成窗花",
             mode = AiImageGenerationMode.IMAGE_TO_IMAGE,
-            count = 1,
+            count = 2,
             imageDataUrl = "data:image/png;base64,abc"
         )
-        assertEquals(1, response.images.size)
-        assertEquals("data:image/png;base64,abc", gateway.requests.single().imageDataUrl)
+        assertEquals(2, response.images.size)
+        assertTrue(gateway.requests.all { it.imageDataUrl == "data:image/png;base64,abc" })
+    }
+
+    @Test
+    fun `image to image allows blank prompt and uses default transfer prompt`() {
+        val gateway = FakeGateway()
+
+        val response = AiImageGenerationService(gateway).generate(
+            prompt = "   ",
+            mode = AiImageGenerationMode.IMAGE_TO_IMAGE,
+            count = 2,
+            imageDataUrl = "data:image/png;base64,abc"
+        )
+
+        assertEquals(2, response.images.size)
+        assertTrue(gateway.requests.first().prompt.contains("将参考图片转绘成剪纸风格"))
     }
 
     @Test
@@ -61,6 +76,8 @@ class AiImageGenerationServiceTest {
         val prompt = gateway.requests.first().prompt
         assertTrue(prompt.contains("红色的中国平面剪纸"))
         assertTrue(prompt.contains("不要照片质感"))
+        assertTrue(gateway.requests[0].prompt.contains("阳刻"))
+        assertTrue(gateway.requests[1].prompt.contains("阴镂"))
     }
 
     @Test
