@@ -14,5 +14,7 @@ class WebConfig : WebMvcConfigurer {
             .addResourceLocations("file:/home/ubuntu/kp_drafts/")
         registry.addResourceHandler("/user-drafts/**")
             .addResourceLocations("file:/home/ubuntu/kp_user_drafts/")
+        registry.addResourceHandler("/custom-patterns/**")
+            .addResourceLocations("file:/home/ubuntu/kp_custom_patterns/")
     }
 }
