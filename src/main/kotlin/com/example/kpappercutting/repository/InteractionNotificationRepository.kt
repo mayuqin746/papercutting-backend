@@ -22,6 +22,16 @@ interface InteractionNotificationRepository : JpaRepository<InteractionNotificat
 
     fun deleteByCommentIdAndType(commentId: Long, type: String)
 
+    fun deleteByCommentIdIn(commentIds: Collection<Long>)
+
+    fun deleteByRecipientIdAndActorIdAndPostIdAndTypeAndCommentId(
+        recipientId: Long,
+        actorId: Long,
+        postId: Long,
+        type: String,
+        commentId: Long
+    )
+
     fun deleteByPostId(postId: Long)
 
     @Modifying

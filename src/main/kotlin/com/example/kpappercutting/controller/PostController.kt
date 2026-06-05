@@ -9,6 +9,8 @@ import com.example.kpappercutting.model.User
 import com.example.kpappercutting.repository.ChallengeAttemptRepository
 import com.example.kpappercutting.repository.ChallengeParticipantRepository
 import com.example.kpappercutting.repository.ChallengeRepository
+import com.example.kpappercutting.repository.CommentLikeRepository
+import com.example.kpappercutting.repository.CommentReportRepository
 import com.example.kpappercutting.repository.CommentRepository
 import com.example.kpappercutting.repository.InteractionNotificationRepository
 import com.example.kpappercutting.repository.PostLikeRepository
@@ -40,6 +42,8 @@ class PostController(
     private val notificationRepository: InteractionNotificationRepository,
     private val postLikeRepository: PostLikeRepository,
     private val commentRepository: CommentRepository,
+    private val commentLikeRepository: CommentLikeRepository,
+    private val commentReportRepository: CommentReportRepository,
     private val challengeRepository: ChallengeRepository,
     private val challengeAttemptRepository: ChallengeAttemptRepository,
     private val challengeParticipantRepository: ChallengeParticipantRepository,
@@ -58,6 +62,20 @@ class PostController(
             page = postRepository.findAllByStatus(1, pageable),
             viewerId = request.currentUserIdOrNull() ?: viewerId
         )
+    }
+
+    @GetMapping("/{postId}")
+    fun getPostDetail(
+        request: HttpServletRequest,
+        @PathVariable postId: Long,
+        @RequestParam(required = false) viewerId: Long?
+    ): ResponseEntity<Any> {
+        val post = postRepository.findById(postId).orElse(null)
+            ?: return ResponseEntity.notFound().build()
+        if (post.status != 1) {
+            return ResponseEntity.notFound().build()
+        }
+        return ResponseEntity.ok(toPostResponse(post, request.currentUserIdOrNull() ?: viewerId))
     }
 
     @GetMapping("/search")
@@ -488,10 +506,20 @@ class PostController(
             .ifEmpty { listOfNotNull(post.imageUrl) }
         val draftUrl = post.draftUrl
 
-        commentRepository.deleteByPost_Id(postId)
+        val comments = commentRepository.findByPost_IdOrderByCreateTimeAsc(postId)
+        val commentIds = comments.map { it.id }
+        if (commentIds.isNotEmpty()) {
+            commentLikeRepository.deleteByCommentIdIn(commentIds)
+            commentReportRepository.deleteByComment_IdIn(commentIds)
+            notificationRepository.deleteByCommentIdIn(commentIds)
+            comments
+                .sortedByDescending { if (it.parentComment == null) 0 else 1 }
+                .forEach { commentRepository.delete(it) }
+        }
         postLikeRepository.deleteByPostId(postId)
         notificationRepository.deleteByPostId(postId)
         postReportRepository.deleteByPost_Id(postId)
+        commentReportRepository.deleteByPost_Id(postId)
         challengeParticipantRepository.deleteByPostId(postId)
         postRepository.delete(post)
 

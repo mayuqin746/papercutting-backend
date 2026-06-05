@@ -64,9 +64,11 @@ class AuthInterceptor(
             path == "/api/posts/like" -> true
             method == "DELETE" && Regex("^/api/posts/\\d+$").matches(path) -> true
             path == "/api/comments/create" -> true
+            method == "POST" && Regex("^/api/comments/\\d+/like$").matches(path) -> true
             method == "DELETE" && Regex("^/api/comments/\\d+$").matches(path) -> true
             path.startsWith("/api/notifications") -> true
             path == "/api/reports/posts" && method == "POST" -> true
+            path == "/api/reports/comments" && method == "POST" -> true
             path == "/api/users/follow" -> true
             path == "/api/users/follow/toggle" -> true
             path == "/api/fortune/collect" -> true

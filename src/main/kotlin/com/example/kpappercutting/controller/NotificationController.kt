@@ -13,7 +13,8 @@ import java.time.LocalDateTime
 @RestController
 @RequestMapping("/api/notifications")
 class NotificationController(
-    private val notificationRepository: InteractionNotificationRepository
+    private val notificationRepository: InteractionNotificationRepository,
+    private val commentRepository: com.example.kpappercutting.repository.CommentRepository
 ) {
     @GetMapping
     fun listNotifications(
@@ -56,6 +57,10 @@ class NotificationController(
             postId = post?.id,
             postImageUrl = imageUrl,
             commentId = notification.commentId,
+            parentCommentId = notification.commentId
+                ?.let { commentRepository.findById(it).orElse(null) }
+                ?.parentComment
+                ?.id,
             commentContent = notification.commentContent,
             isRead = notification.isRead,
             createTime = notification.createTime
@@ -70,6 +75,7 @@ data class InteractionNotificationResponse(
     val postId: Long?,
     val postImageUrl: String?,
     val commentId: Long?,
+    val parentCommentId: Long?,
     val commentContent: String?,
     val isRead: Boolean,
     val createTime: LocalDateTime

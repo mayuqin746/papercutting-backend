@@ -10,7 +10,6 @@ data class Comment(
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long = 0,
 
-    // 修改：关联到 Post 对象，而不是直接存 Long ID
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "post_id")
     val post: Post? = null,
@@ -19,11 +18,19 @@ data class Comment(
     @JoinColumn(name = "user_id")
     val author: User? = null,
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "parent_comment_id")
+    val parentComment: Comment? = null,
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "reply_to_user_id")
+    val replyToUser: User? = null,
+
     @Column(columnDefinition = "TEXT")
     val content: String = "",
 
-    // 在服务端的 Comment 模型中添加
+    var likeCount: Int = 0,
+
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     val createTime: LocalDateTime = LocalDateTime.now(),
-
 )

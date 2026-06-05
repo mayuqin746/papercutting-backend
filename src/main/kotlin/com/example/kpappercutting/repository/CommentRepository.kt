@@ -6,9 +6,11 @@ import org.springframework.stereotype.Repository
 
 @Repository
 interface CommentRepository : JpaRepository<Comment, Long> {
-    // 根据动态 ID 获取所有评论
-    // 增加下划线，明确表示查询 post 属性下的 id
     fun findByPost_IdOrderByCreateTimeAsc(postId: Long): List<Comment>
+
+    fun findByParentComment_IdOrderByCreateTimeAsc(parentCommentId: Long): List<Comment>
+
+    fun findByParentComment_IdIn(parentCommentIds: Collection<Long>): List<Comment>
 
     fun deleteByPost_Id(postId: Long)
 }

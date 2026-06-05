@@ -1,6 +1,7 @@
 package com.example.kpappercutting.controller
 
 import com.example.kpappercutting.repository.ChallengeRepository
+import com.example.kpappercutting.repository.CommentReportRepository
 import com.example.kpappercutting.repository.KnowledgeSubmissionRepository
 import com.example.kpappercutting.repository.PostReportRepository
 import com.example.kpappercutting.repository.PostRepository
@@ -16,6 +17,7 @@ import java.time.LocalDateTime
 class AdminOverviewController(
     private val postRepository: PostRepository,
     private val postReportRepository: PostReportRepository,
+    private val commentReportRepository: CommentReportRepository,
     private val knowledgeSubmissionRepository: KnowledgeSubmissionRepository,
     private val challengeRepository: ChallengeRepository
 ) {
@@ -25,7 +27,8 @@ class AdminOverviewController(
         val pendingPosts = postRepository.countByStatus(0)
         val approvedPosts = postRepository.countByStatus(1)
         val rejectedPosts = postRepository.countByStatus(2)
-        val pendingReports = postReportRepository.countByReviewStatus("pending")
+        val pendingReports = postReportRepository.countByReviewStatus("pending") +
+                commentReportRepository.countByReviewStatus("pending")
         val pendingKnowledgeSubmissions = knowledgeSubmissionRepository.countByStatus(KNOWLEDGE_SUBMISSION_PENDING)
         val activeChallenges = challengeRepository.countByStatusAndDeadlineAfter(
             CHALLENGE_STATUS_PUBLISHED,
