@@ -17,8 +17,13 @@ import com.example.kpappercutting.repository.UserRepository
 import com.example.kpappercutting.security.currentUserId
 import com.example.kpappercutting.security.currentUserIdOrNull
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.persistence.criteria.JoinType
 import org.springframework.http.ResponseEntity
 import jakarta.transaction.Transactional
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.io.File
@@ -42,10 +47,13 @@ class PostController(
     @GetMapping("/all")
     fun getAllPosts(
         request: HttpServletRequest,
-        @RequestParam(required = false) viewerId: Long?
-    ): List<PostResponse> {
-        return withLikedState(
-            posts = postRepository.findAllByStatusOrderByCreateTimeDesc(1),
+        @RequestParam(required = false) viewerId: Long?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): PostPageResponse {
+        val pageable = postPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createTime"))
+        return toPostPageResponse(
+            page = postRepository.findAllByStatus(1, pageable),
             viewerId = request.currentUserIdOrNull() ?: viewerId
         )
     }
@@ -54,15 +62,25 @@ class PostController(
     fun searchPosts(
         request: HttpServletRequest,
         @RequestParam keyword: String,
-        @RequestParam(required = false) viewerId: Long?
-    ): List<PostResponse> {
+        @RequestParam(required = false) viewerId: Long?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): PostPageResponse {
         val safeKeyword = keyword.trim().take(120)
-        if (safeKeyword.isBlank()) return emptyList()
+        val pageable = postPageRequest(
+            page = page,
+            size = size,
+            sort = Sort.by(
+                Sort.Order.desc("likeCount"),
+                Sort.Order.desc("createTime")
+            )
+        )
+        if (safeKeyword.isBlank()) return emptyPostPageResponse(pageable.pageNumber, pageable.pageSize)
         val searchTerms = buildPostSearchTerms(safeKeyword)
         val draftFilter = resolveDraftSearchFilter(safeKeyword)
-        return withLikedState(
-            posts = postRepository.findAllByStatusOrderByLikeCountDescCreateTimeDesc(1)
-                .filter { post -> matchesPostSearch(post, searchTerms, draftFilter) },
+        val spec = buildPostSearchSpecification(searchTerms, draftFilter)
+        return toPostPageResponse(
+            page = postRepository.findAll(spec, pageable),
             viewerId = request.currentUserIdOrNull() ?: viewerId
         )
     }
@@ -326,10 +344,13 @@ class PostController(
     fun getUserPosts(
         request: HttpServletRequest,
         @PathVariable userId: Long,
-        @RequestParam(required = false) viewerId: Long?
-    ): List<PostResponse> {
-        return withLikedState(
-            posts = postRepository.findByAuthorIdOrderByCreateTimeDesc(userId),
+        @RequestParam(required = false) viewerId: Long?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): PostPageResponse {
+        val pageable = postPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createTime"))
+        return toPostPageResponse(
+            page = postRepository.findByAuthorId(userId, pageable),
             viewerId = request.currentUserIdOrNull() ?: viewerId
         )
     }
@@ -403,11 +424,21 @@ class PostController(
     fun getLikedPosts(
         request: HttpServletRequest,
         @PathVariable userId: Long,
-        @RequestParam(required = false) viewerId: Long?
-    ): List<PostResponse> {
-        val likedIds = postLikeRepository.findByUserId(userId).map { it.postId }
-        return withLikedState(
-            posts = postRepository.findAllById(likedIds).reversed(),
+        @RequestParam(required = false) viewerId: Long?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): PostPageResponse {
+        val pageable = postPageRequest(page, size, Sort.unsorted())
+        val likedPage = postLikeRepository.findByUserIdOrderByCreateTimeDesc(userId, pageable)
+        val likedIds = likedPage.content.map { it.postId }
+        val postsById = postRepository.findAllById(likedIds).associateBy { it.id }
+        val posts = likedIds.mapNotNull { postsById[it] }
+        return toPostPageResponse(
+            items = posts,
+            page = likedPage.number,
+            size = likedPage.size,
+            totalElements = likedPage.totalElements,
+            totalPages = likedPage.totalPages,
             viewerId = request.currentUserIdOrNull() ?: viewerId ?: userId
         )
     }
@@ -510,6 +541,88 @@ class PostController(
         )
     }
 
+    private fun toPostPageResponse(page: Page<Post>, viewerId: Long?): PostPageResponse {
+        return toPostPageResponse(
+            items = page.content,
+            page = page.number,
+            size = page.size,
+            totalElements = page.totalElements,
+            totalPages = page.totalPages,
+            viewerId = viewerId
+        )
+    }
+
+    private fun toPostPageResponse(
+        items: List<Post>,
+        page: Int,
+        size: Int,
+        totalElements: Long,
+        totalPages: Int,
+        viewerId: Long?
+    ): PostPageResponse {
+        return PostPageResponse(
+            items = withLikedState(items, viewerId),
+            page = page,
+            size = size,
+            totalElements = totalElements,
+            totalPages = totalPages,
+            hasMore = page + 1 < totalPages
+        )
+    }
+
+    private fun emptyPostPageResponse(page: Int, size: Int): PostPageResponse {
+        return PostPageResponse(
+            items = emptyList(),
+            page = page,
+            size = size,
+            totalElements = 0,
+            totalPages = 0,
+            hasMore = false
+        )
+    }
+
+    private fun postPageRequest(page: Int, size: Int, sort: Sort): PageRequest {
+        return PageRequest.of(
+            page.coerceAtLeast(0),
+            size.coerceIn(MIN_POST_PAGE_SIZE, MAX_POST_PAGE_SIZE),
+            sort
+        )
+    }
+
+    private fun buildPostSearchSpecification(
+        searchTerms: List<String>,
+        draftFilter: Boolean?
+    ): Specification<Post> {
+        return Specification { root, query, criteriaBuilder ->
+            query.distinct(true)
+            val author = root.join<Post, User>("author", JoinType.LEFT)
+            val predicates = mutableListOf(
+                criteriaBuilder.equal(root.get<Int>("status"), 1)
+            )
+
+            draftFilter?.let { isDraft ->
+                predicates += if (isDraft) {
+                    criteriaBuilder.equal(root.get<String>("shareType"), SHARE_TYPE_DRAFT)
+                } else {
+                    criteriaBuilder.notEqual(root.get<String>("shareType"), SHARE_TYPE_DRAFT)
+                }
+            }
+
+            searchTerms.forEach { term ->
+                val likeValue = "%${term.lowercase()}%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get<String>("category")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get<String>("content")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get<String>("locationName")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(author.get<String>("nickname")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(author.get<String>("username")), likeValue)
+                )
+            }
+
+            criteriaBuilder.and(*predicates.toTypedArray())
+        }
+    }
+
     private fun registerChallengeParticipationIfEligible(post: Post) {
         val authorId = post.author?.id ?: return
         val categories = post.category
@@ -559,8 +672,19 @@ data class PostResponse(
     val isLiked: Boolean
 )
 
+data class PostPageResponse(
+    val items: List<PostResponse>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+    val hasMore: Boolean
+)
+
 private const val SHARE_TYPE_RESULT = "RESULT"
 private const val SHARE_TYPE_DRAFT = "DRAFT"
+private const val MIN_POST_PAGE_SIZE = 1
+private const val MAX_POST_PAGE_SIZE = 50
 
 data class UserPostReviewGroup(
     val author: User?,
