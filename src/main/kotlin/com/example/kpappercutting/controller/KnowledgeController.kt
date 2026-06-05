@@ -13,8 +13,11 @@ import com.example.kpappercutting.repository.KnowledgeSubmissionRepository
 import com.example.kpappercutting.repository.UserReadRecordRepository
 import com.example.kpappercutting.repository.UserRepository
 import com.example.kpappercutting.security.currentUserId
+import jakarta.persistence.criteria.JoinType
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.transaction.Transactional
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CrossOrigin
@@ -263,25 +266,32 @@ class KnowledgeController(
     }
 
     @GetMapping("/admin/submissions")
-    fun getAdminSubmissions(@RequestParam(required = false) status: String?): List<KnowledgeSubmissionDto> {
-        val normalizedStatus = status?.uppercase()?.takeIf { it in setOf(KNOWLEDGE_SUBMISSION_PENDING, KNOWLEDGE_SUBMISSION_ADOPTED, KNOWLEDGE_SUBMISSION_REJECTED) }
-        val submissions = if (normalizedStatus == null) {
-            submissionRepository.findAllByOrderByCreateTimeDesc()
-        } else {
-            submissionRepository.findByStatusOrderByCreateTimeDesc(normalizedStatus)
-        }
-        return submissions.map(::toSubmissionDto)
+    fun getAdminSubmissions(
+        @RequestParam(required = false) status: String?,
+        @RequestParam(defaultValue = "全部") category: String,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<KnowledgeSubmissionDto> {
+        val pageable = adminPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createTime"))
+        return submissionRepository
+            .findAll(buildKnowledgeSubmissionSpecification(status, category, keyword), pageable)
+            .toAdminPageResponse(::toSubmissionDto)
     }
 
     @GetMapping("/admin")
-    fun getAdminKnowledge(@RequestParam(required = false) status: String?): List<AdminKnowledgeDto> {
-        val normalizedStatus = status?.uppercase()?.takeIf { it in setOf(KNOWLEDGE_STATUS_PUBLISHED, KNOWLEDGE_STATUS_ARCHIVED) }
-        val knowledge = if (normalizedStatus == null) {
-            knowledgeRepository.findAllByOrderByIdAsc()
-        } else {
-            knowledgeRepository.findByStatusOrderByIdAsc(normalizedStatus)
-        }
-        return knowledge.map(::toAdminKnowledgeDto)
+    fun getAdminKnowledge(
+        @RequestParam(required = false) status: String?,
+        @RequestParam(defaultValue = "全部") category: String,
+        @RequestParam(defaultValue = "all") sourceType: String,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<AdminKnowledgeDto> {
+        val pageable = adminPageRequest(page, size, Sort.by(Sort.Direction.ASC, "id"))
+        return knowledgeRepository
+            .findAll(buildKnowledgeSpecification(status, category, sourceType, keyword), pageable)
+            .toAdminPageResponse(::toAdminKnowledgeDto)
     }
 
     @PostMapping("/admin")
@@ -534,6 +544,77 @@ class KnowledgeController(
             "false", "错", "错误", "✗", "x", "否", "0" -> "false"
             "true", "对", "正确", "✓", "√", "是", "1" -> "true"
             else -> answer.trim().lowercase()
+        }
+    }
+
+    private fun buildKnowledgeSubmissionSpecification(
+        status: String?,
+        category: String,
+        keyword: String
+    ): Specification<KnowledgeSubmission> {
+        val normalizedStatus = status?.uppercase()?.takeIf {
+            it in setOf(KNOWLEDGE_SUBMISSION_PENDING, KNOWLEDGE_SUBMISSION_ADOPTED, KNOWLEDGE_SUBMISSION_REJECTED)
+        }
+        val normalizedCategory = category.trim().takeIf { it in KNOWLEDGE_CATEGORIES }
+        val safeKeyword = keyword.trim().lowercase().take(120)
+        return Specification { root, _, criteriaBuilder ->
+            val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+            val author = root.join<KnowledgeSubmission, User>("author", JoinType.LEFT)
+
+            normalizedStatus?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("status"), it)
+            }
+            normalizedCategory?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("category"), it)
+            }
+            if (safeKeyword.isNotBlank()) {
+                val likeValue = "%$safeKeyword%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("title")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("content")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("questionText")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(author.get("nickname")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(author.get("username")), likeValue)
+                )
+            }
+
+            criteriaBuilder.and(*predicates.toTypedArray())
+        }
+    }
+
+    private fun buildKnowledgeSpecification(
+        status: String?,
+        category: String,
+        sourceType: String,
+        keyword: String
+    ): Specification<Knowledge> {
+        val normalizedStatus = status?.uppercase()?.takeIf { it in setOf(KNOWLEDGE_STATUS_PUBLISHED, KNOWLEDGE_STATUS_ARCHIVED) }
+        val normalizedCategory = category.trim().takeIf { it in KNOWLEDGE_CATEGORIES }
+        val normalizedSourceType = sourceType.trim().uppercase().takeIf { it in setOf(KNOWLEDGE_SOURCE_OFFICIAL, KNOWLEDGE_SOURCE_USER) }
+        val safeKeyword = keyword.trim().lowercase().take(120)
+        return Specification { root, _, criteriaBuilder ->
+            val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+
+            normalizedStatus?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("status"), it)
+            }
+            normalizedCategory?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("category"), it)
+            }
+            normalizedSourceType?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("sourceType"), it)
+            }
+            if (safeKeyword.isNotBlank()) {
+                val likeValue = "%$safeKeyword%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("title")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("content")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("questionText")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("category")), likeValue)
+                )
+            }
+
+            criteriaBuilder.and(*predicates.toTypedArray())
         }
     }
 }

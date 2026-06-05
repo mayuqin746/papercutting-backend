@@ -5,6 +5,8 @@ import com.example.kpappercutting.model.OFFICIAL_INFO_STATUS_ARCHIVED
 import com.example.kpappercutting.model.OFFICIAL_INFO_STATUS_PUBLISHED
 import com.example.kpappercutting.model.OfficialInfo
 import com.example.kpappercutting.repository.OfficialInfoRepository
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -46,8 +48,21 @@ class OfficialInfoController(
     }
 
     @GetMapping("/admin")
-    fun getAdminOfficialInfo(): List<OfficialInfoDto> {
-        return officialInfoRepository.findAllByOrderBySortOrderDescPublishDateDescIdDesc().map(::toDto)
+    fun getAdminOfficialInfo(
+        @RequestParam(defaultValue = "all") status: String,
+        @RequestParam(defaultValue = "all") category: String,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<OfficialInfoDto> {
+        val pageable = adminPageRequest(
+            page,
+            size,
+            Sort.by(Sort.Order.desc("sortOrder"), Sort.Order.desc("publishDate"), Sort.Order.desc("id"))
+        )
+        return officialInfoRepository
+            .findAll(buildOfficialInfoSpecification(status, category, keyword), pageable)
+            .toAdminPageResponse(::toDto)
     }
 
     @PostMapping("/admin")
@@ -181,6 +196,38 @@ class OfficialInfoController(
             createTime = info.createTime,
             updateTime = info.updateTime
         )
+    }
+
+    private fun buildOfficialInfoSpecification(
+        status: String,
+        category: String,
+        keyword: String
+    ): Specification<OfficialInfo> {
+        val normalizedStatus = status.trim().uppercase().takeIf {
+            it in setOf(OFFICIAL_INFO_STATUS_PUBLISHED, OFFICIAL_INFO_STATUS_ARCHIVED)
+        }
+        val normalizedCategory = category.trim().uppercase().takeIf { it in OFFICIAL_INFO_CATEGORIES }
+        val safeKeyword = keyword.trim().lowercase().take(120)
+        return Specification { root, _, criteriaBuilder ->
+            val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+
+            normalizedStatus?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("status"), it)
+            }
+            normalizedCategory?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("category"), it)
+            }
+            if (safeKeyword.isNotBlank()) {
+                val likeValue = "%$safeKeyword%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("title")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("summary")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("content")), likeValue)
+                )
+            }
+
+            criteriaBuilder.and(*predicates.toTypedArray())
+        }
     }
 }
 

@@ -2,10 +2,11 @@ package com.example.kpappercutting.repository
 
 import com.example.kpappercutting.model.Knowledge
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 import org.springframework.stereotype.Repository
 
 @Repository
-interface KnowledgeRepository : JpaRepository<Knowledge, Long> {
+interface KnowledgeRepository : JpaRepository<Knowledge, Long>, JpaSpecificationExecutor<Knowledge> {
     fun findByStatusOrderByIdAsc(status: String): List<Knowledge>
     fun findAllByOrderByIdAsc(): List<Knowledge>
     fun findByAuthorSubmissionId(authorSubmissionId: Long): Knowledge?

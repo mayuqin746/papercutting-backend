@@ -138,32 +138,52 @@ class PostController(
     }
 
     @GetMapping("/admin/review-list")
-    fun getAdminReviewPosts(): List<PostResponse> {
-        return postRepository.findAllByOrderByCreateTimeDesc().map { post ->
-            toPostResponse(post, isLiked = false)
-        }
+    fun getAdminReviewPosts(
+        @RequestParam(defaultValue = "all") status: String,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<PostResponse> {
+        val pageable = adminPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createTime"))
+        return postRepository
+            .findAll(buildAdminPostSpecification(resolveAdminPostStatus(status), keyword), pageable)
+            .toAdminPageResponse { post -> toPostResponse(post, isLiked = false) }
     }
 
-    @GetMapping("/admin/grouped-by-user")
-    fun getAdminPostsGroupedByUser(): List<UserPostReviewGroup> {
-        return postRepository.findAllByOrderByCreateTimeDesc()
-            .groupBy { it.author?.id ?: 0L }
-            .values
-            .map { posts ->
-                val author = posts.firstOrNull()?.author
+    @GetMapping("/admin/user-groups")
+    fun getAdminPostUserGroups(
+        @RequestParam(defaultValue = "all") status: String,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<UserPostReviewGroup> {
+        val pageable = adminPageRequest(page, size, Sort.unsorted())
+        return postRepository
+            .findAdminUserGroups(resolveAdminPostStatus(status), keyword.trim().take(120), pageable)
+            .toAdminPageResponse { row ->
                 UserPostReviewGroup(
-                    author = author,
-                    totalCount = posts.size,
-                    pendingCount = posts.count { it.status == 0 },
-                    approvedCount = posts.count { it.status == 1 },
-                    rejectedCount = posts.count { it.status == 2 },
-                    posts = posts.map { toPostResponse(it, isLiked = false) }
+                    author = row.author,
+                    totalCount = row.totalCount.toInt(),
+                    pendingCount = row.pendingCount.toInt(),
+                    approvedCount = row.approvedCount.toInt(),
+                    rejectedCount = row.rejectedCount.toInt(),
+                    latestPostTime = row.latestPostTime
                 )
             }
-            .sortedWith(
-                compareByDescending<UserPostReviewGroup> { it.pendingCount }
-                    .thenByDescending { it.posts.firstOrNull()?.createTime ?: LocalDateTime.MIN }
-            )
+    }
+
+    @GetMapping("/admin/user-groups/{userId}/posts")
+    fun getAdminPostsForUserGroup(
+        @PathVariable userId: Long,
+        @RequestParam(defaultValue = "all") status: String,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<PostResponse> {
+        val pageable = adminPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createTime"))
+        return postRepository
+            .findAll(buildAdminPostSpecification(resolveAdminPostStatus(status), keyword, userId), pageable)
+            .toAdminPageResponse { post -> toPostResponse(post, isLiked = false) }
     }
 
     @PostMapping("/review")
@@ -623,6 +643,46 @@ class PostController(
         }
     }
 
+    private fun resolveAdminPostStatus(status: String?): Int? {
+        return when (status?.trim()?.lowercase()) {
+            "pending" -> 0
+            "approved" -> 1
+            "rejected" -> 2
+            else -> null
+        }
+    }
+
+    private fun buildAdminPostSpecification(
+        status: Int?,
+        keyword: String,
+        authorId: Long? = null
+    ): Specification<Post> {
+        val safeKeyword = keyword.trim().lowercase().take(120)
+        return Specification { root, _, criteriaBuilder ->
+            val author = root.join<Post, User>("author", JoinType.LEFT)
+            val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+
+            status?.let {
+                predicates += criteriaBuilder.equal(root.get<Int>("status"), it)
+            }
+            authorId?.let {
+                predicates += criteriaBuilder.equal(author.get<Long>("id"), it)
+            }
+            if (safeKeyword.isNotBlank()) {
+                val likeValue = "%$safeKeyword%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("content")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("category")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("locationName")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(author.get("nickname")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(author.get("username")), likeValue)
+                )
+            }
+
+            criteriaBuilder.and(*predicates.toTypedArray())
+        }
+    }
+
     private fun registerChallengeParticipationIfEligible(post: Post) {
         val authorId = post.author?.id ?: return
         val categories = post.category
@@ -692,5 +752,5 @@ data class UserPostReviewGroup(
     val pendingCount: Int,
     val approvedCount: Int,
     val rejectedCount: Int,
-    val posts: List<PostResponse>
+    val latestPostTime: LocalDateTime?
 )

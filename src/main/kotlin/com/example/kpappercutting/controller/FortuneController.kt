@@ -8,6 +8,8 @@ import com.example.kpappercutting.repository.UserRepository
 import com.example.kpappercutting.security.currentUserId
 import com.example.kpappercutting.security.currentUserIdOrNull
 import jakarta.servlet.http.HttpServletRequest
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.GetMapping
@@ -86,8 +88,17 @@ class FortuneController(
     }
 
     @GetMapping("/admin")
-    fun getAdminFortuneCards(): List<FortuneCardDto> {
-        return fortuneCardRepository.findAllByOrderByDisplayDateDescIdDesc().map(::toFortuneCardDto)
+    fun getAdminFortuneCards(
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(required = false) fromDate: LocalDate?,
+        @RequestParam(required = false) toDate: LocalDate?,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<FortuneCardDto> {
+        val pageable = adminPageRequest(page, size, Sort.by(Sort.Order.desc("displayDate"), Sort.Order.desc("id")))
+        return fortuneCardRepository
+            .findAll(buildFortuneCardSpecification(keyword, fromDate, toDate), pageable)
+            .toAdminPageResponse(::toFortuneCardDto)
     }
 
     @PostMapping("/admin")
@@ -151,6 +162,33 @@ class FortuneController(
             solarTerm = card.solarTerm,
             suitableEvents = card.suitableEvents
         )
+    }
+
+    private fun buildFortuneCardSpecification(
+        keyword: String,
+        fromDate: LocalDate?,
+        toDate: LocalDate?
+    ): Specification<FortuneCard> {
+        val safeKeyword = keyword.trim().lowercase().take(120)
+        return Specification { root, _, criteriaBuilder ->
+            val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+            fromDate?.let {
+                predicates += criteriaBuilder.greaterThanOrEqualTo(root.get("displayDate"), it)
+            }
+            toDate?.let {
+                predicates += criteriaBuilder.lessThanOrEqualTo(root.get("displayDate"), it)
+            }
+            if (safeKeyword.isNotBlank()) {
+                val likeValue = "%$safeKeyword%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("lunarDate")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("solarTerm")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("suitableEvents")), likeValue),
+                    criteriaBuilder.like(root.get<LocalDate>("displayDate").`as`(String::class.java), likeValue)
+                )
+            }
+            criteriaBuilder.and(*predicates.toTypedArray())
+        }
     }
 }
 

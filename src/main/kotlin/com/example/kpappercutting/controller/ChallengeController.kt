@@ -9,6 +9,8 @@ import com.example.kpappercutting.repository.UserRepository
 import com.example.kpappercutting.security.currentUserId
 import com.example.kpappercutting.security.currentUserIdOrNull
 import jakarta.servlet.http.HttpServletRequest
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.time.LocalDateTime
@@ -95,8 +97,16 @@ class ChallengeController(
     }
 
     @GetMapping("/admin")
-    fun getAdminChallenges(): List<AdminChallengeResponse> {
-        return challengeRepository.findAllByOrderByStartTimeDescIdDesc().map(::toAdminChallengeResponse)
+    fun getAdminChallenges(
+        @RequestParam(defaultValue = "all") status: String,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<AdminChallengeResponse> {
+        val pageable = adminPageRequest(page, size, Sort.by(Sort.Order.desc("startTime"), Sort.Order.desc("id")))
+        return challengeRepository
+            .findAll(buildChallengeSpecification(status, keyword), pageable)
+            .toAdminPageResponse(::toAdminChallengeResponse)
     }
 
     @PostMapping("/admin")
@@ -209,6 +219,33 @@ class ChallengeController(
             .distinct()
             .take(6)
             .joinToString(",")
+    }
+
+    private fun buildChallengeSpecification(status: String, keyword: String): Specification<Challenge> {
+        val normalizedStatus = normalizeAdminChallengeStatus(status)
+        val safeKeyword = keyword.trim().lowercase().take(120)
+        return Specification { root, _, criteriaBuilder ->
+            val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+            normalizedStatus?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("status"), it)
+            }
+            if (safeKeyword.isNotBlank()) {
+                val likeValue = "%$safeKeyword%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("title")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("activityLabel")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("challengeTag")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("description")), likeValue)
+                )
+            }
+            criteriaBuilder.and(*predicates.toTypedArray())
+        }
+    }
+
+    private fun normalizeAdminChallengeStatus(status: String): String? {
+        return status.trim().uppercase().takeIf {
+            it in setOf(CHALLENGE_STATUS_DRAFT, CHALLENGE_STATUS_PUBLISHED, CHALLENGE_STATUS_ARCHIVED)
+        }
     }
 }
 

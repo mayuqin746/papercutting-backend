@@ -7,7 +7,10 @@ import com.example.kpappercutting.repository.PostReportRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
 import com.example.kpappercutting.security.currentUserId
+import jakarta.persistence.criteria.JoinType
 import jakarta.servlet.http.HttpServletRequest
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.time.LocalDateTime
@@ -54,13 +57,16 @@ class ReportController(
 
     @GetMapping("/posts/admin")
     fun getPostReportsForAdmin(
-        @RequestParam(required = false) status: String?
-    ): List<PostReportResponse> {
-        val reports = when (status) {
-            "pending", "reviewed" -> postReportRepository.findByReviewStatusOrderByCreateTimeDesc(status)
-            else -> postReportRepository.findAllByOrderByCreateTimeDesc()
-        }
-        return reports.map(::toPostReportResponse)
+        @RequestParam(required = false) reviewStatus: String?,
+        @RequestParam(required = false) status: String?,
+        @RequestParam(defaultValue = "") keyword: String,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int
+    ): AdminPageResponse<PostReportResponse> {
+        val pageable = adminPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createTime"))
+        return postReportRepository
+            .findAll(buildPostReportSpecification(reviewStatus ?: status, keyword), pageable)
+            .toAdminPageResponse(::toPostReportResponse)
     }
 
     @PostMapping("/posts/{reportId}/review")
@@ -113,6 +119,36 @@ class ReportController(
             createTime = report.createTime,
             reviewTime = report.reviewTime
         )
+    }
+
+    private fun buildPostReportSpecification(
+        reviewStatus: String?,
+        keyword: String
+    ): Specification<PostReport> {
+        val normalizedStatus = reviewStatus?.trim()?.lowercase()?.takeIf { it in setOf("pending", "reviewed") }
+        val safeKeyword = keyword.trim().lowercase().take(120)
+        return Specification { root, _, criteriaBuilder ->
+            val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+            val post = root.join<PostReport, Post>("post", JoinType.LEFT)
+            val reporter = root.join<PostReport, User>("reporter", JoinType.LEFT)
+
+            normalizedStatus?.let {
+                predicates += criteriaBuilder.equal(root.get<String>("reviewStatus"), it)
+            }
+            if (safeKeyword.isNotBlank()) {
+                val likeValue = "%$safeKeyword%"
+                predicates += criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("reason")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("description")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(post.get("content")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(post.get("category")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(reporter.get("nickname")), likeValue),
+                    criteriaBuilder.like(criteriaBuilder.lower(reporter.get("username")), likeValue)
+                )
+            }
+
+            criteriaBuilder.and(*predicates.toTypedArray())
+        }
     }
 }
 
