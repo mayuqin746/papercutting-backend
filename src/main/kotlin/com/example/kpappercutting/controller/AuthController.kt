@@ -7,6 +7,7 @@ import com.example.kpappercutting.security.JwtService
 import com.example.kpappercutting.security.currentUserId
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.io.File
@@ -16,18 +17,20 @@ import java.util.UUID
 @RequestMapping("/api/auth")
 class AuthController(
     private val userRepository: UserRepository,
-    private val jwtService: JwtService
+    private val jwtService: JwtService,
+    private val passwordEncoder: BCryptPasswordEncoder
 ) {
 
     @PostMapping("/login")
-    fun login(@RequestBody loginRequest: Map<String, String>): ResponseEntity<Any> {
-        val username = loginRequest["username"] ?: ""
-        val password = loginRequest["password"] ?: ""
+    fun login(@RequestBody loginRequest: LoginRequest): ResponseEntity<Any> {
+        val username = loginRequest.username.trim()
+        val password = loginRequest.password
 
         val user = userRepository.findByUsername(username)
 
-        return if (user != null && user.password == password) {
-            ResponseEntity.ok(user.toAuthResponse())
+        return if (user != null && verifyPassword(user, password)) {
+            val securedUser = migrateLegacyPasswordIfNeeded(user, password)
+            ResponseEntity.ok(securedUser.toAuthResponse())
         } else {
             ResponseEntity.status(401).body(mapOf("message" to "用户名或密码错误"))
         }
@@ -35,23 +38,28 @@ class AuthController(
 
     // 注册接口
     @PostMapping("/register")
-    fun register(@RequestBody newUser: User): ResponseEntity<Any> {
+    fun register(@RequestBody request: RegisterRequest): ResponseEntity<Any> {
         val regex = Regex("^[a-zA-Z0-9]*$")
+        val username = request.username.trim()
+        val password = request.password
 
-        if (newUser.username.length !in 4..16 || !newUser.username.matches(regex)) {
+        if (username.length !in 4..16 || !username.matches(regex)) {
             return ResponseEntity.status(400).body(mapOf("message" to "账号格式不合规"))
         }
 
-        if (newUser.password.length !in 6..18 || !newUser.password.matches(regex)) {
+        if (password.length !in 6..18 || !password.matches(regex)) {
             return ResponseEntity.status(400).body(mapOf("message" to "密码格式不合规"))
         }
 
-        if (userRepository.findByUsername(newUser.username) != null) {
+        if (userRepository.findByUsername(username) != null) {
             return ResponseEntity.status(400).body(mapOf("message" to "该账号已被注册"))
         }
 
-        val userToSave = newUser.copy(
-            nickname = newUser.nickname.ifEmpty { "昵称" },
+        val userToSave = User(
+            username = username,
+            password = "",
+            passwordHash = passwordEncoder.encode(password),
+            nickname = request.nickname.ifEmpty { "昵称" },
             region = "", // 初始为空，让用户自己去编辑
             bio = "",    // 初始为空
             followerCount = 0,
@@ -154,7 +162,7 @@ class AuthController(
         val user = userRepository.findById(userId).orElse(null)
             ?: return ResponseEntity.notFound().build()
 
-        if (user.password != oldPassword) {
+        if (!verifyPassword(user, oldPassword)) {
             return ResponseEntity.status(401).body(mapOf("message" to "原密码输入错误"))
         }
 
@@ -163,10 +171,31 @@ class AuthController(
             return ResponseEntity.status(400).body(mapOf("message" to "新密码格式不合规（6-18位数字或字母）"))
         }
 
-        val updatedUser = user.copy(password = newPassword)
+        val updatedUser = user.copy(
+            password = "",
+            passwordHash = passwordEncoder.encode(newPassword)
+        )
         userRepository.save(updatedUser)
 
         return ResponseEntity.ok(mapOf("message" to "修改成功"))
+    }
+
+    private fun verifyPassword(user: User, rawPassword: String): Boolean {
+        if (user.passwordHash.isNotBlank()) {
+            return passwordEncoder.matches(rawPassword, user.passwordHash)
+        }
+        return user.password.isNotBlank() && user.password == rawPassword
+    }
+
+    private fun migrateLegacyPasswordIfNeeded(user: User, rawPassword: String): User {
+        if (user.passwordHash.isNotBlank()) return user
+        if (user.password.isBlank()) return user
+        return userRepository.save(
+            user.copy(
+                password = "",
+                passwordHash = passwordEncoder.encode(rawPassword)
+            )
+        )
     }
 
     private fun User.toAuthResponse(): AuthResponse {
@@ -191,6 +220,17 @@ class AuthController(
         )
     }
 }
+
+data class LoginRequest(
+    val username: String = "",
+    val password: String = ""
+)
+
+data class RegisterRequest(
+    val username: String = "",
+    val password: String = "",
+    val nickname: String = ""
+)
 
 data class AuthResponse(
     val token: String,

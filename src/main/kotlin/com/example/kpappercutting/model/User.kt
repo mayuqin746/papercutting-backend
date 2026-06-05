@@ -18,6 +18,10 @@ data class User(
     @Column(nullable = false)
     val password: String = "",
 
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @Column(name = "password_hash", nullable = false, length = 100, columnDefinition = "varchar(100) default ''")
+    val passwordHash: String = "",
+
     val nickname: String = "",
     val region: String = "",
     val bio: String = "",

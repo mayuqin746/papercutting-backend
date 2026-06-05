@@ -1,6 +1,7 @@
 package com.example.kpappercutting.security
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import jakarta.annotation.PostConstruct
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets
@@ -11,7 +12,7 @@ import javax.crypto.spec.SecretKeySpec
 
 @Service
 class JwtService(
-    @Value("\${jwt.secret:kp-papercutting-default-secret-change-me}")
+    @Value("\${jwt.secret:}")
     private val secret: String,
     @Value("\${jwt.expiration-seconds:604800}")
     private val expirationSeconds: Long,
@@ -19,6 +20,13 @@ class JwtService(
 ) {
     private val encoder: Base64.Encoder = Base64.getUrlEncoder().withoutPadding()
     private val decoder: Base64.Decoder = Base64.getUrlDecoder()
+
+    @PostConstruct
+    fun validateSecret() {
+        require(secret.length >= 32) {
+            "JWT_SECRET must be configured and at least 32 characters long"
+        }
+    }
 
     fun generateToken(userId: Long, username: String): String {
         val now = Instant.now().epochSecond
