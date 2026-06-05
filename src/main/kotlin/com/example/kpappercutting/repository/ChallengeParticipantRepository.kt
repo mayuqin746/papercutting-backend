@@ -8,4 +8,5 @@ import org.springframework.stereotype.Repository
 interface ChallengeParticipantRepository : JpaRepository<ChallengeParticipant, Long> {
     fun existsByChallengeIdAndUserId(challengeId: Long, userId: Long): Boolean
     fun countByChallengeId(challengeId: Long): Long
+    fun deleteByPostId(postId: Long)
 }

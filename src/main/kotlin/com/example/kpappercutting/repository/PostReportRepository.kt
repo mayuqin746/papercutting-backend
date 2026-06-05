@@ -10,4 +10,5 @@ interface PostReportRepository : JpaRepository<PostReport, Long>, JpaSpecificati
     fun findAllByOrderByCreateTimeDesc(): List<PostReport>
     fun findByReviewStatusOrderByCreateTimeDesc(reviewStatus: String): List<PostReport>
     fun countByReviewStatus(reviewStatus: String): Long
+    fun deleteByPost_Id(postId: Long)
 }

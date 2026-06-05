@@ -13,6 +13,7 @@ import com.example.kpappercutting.repository.CommentRepository
 import com.example.kpappercutting.repository.InteractionNotificationRepository
 import com.example.kpappercutting.repository.PostLikeRepository
 import com.example.kpappercutting.repository.PostRepository
+import com.example.kpappercutting.repository.PostReportRepository
 import com.example.kpappercutting.repository.UserRepository
 import com.example.kpappercutting.security.currentUserId
 import com.example.kpappercutting.security.currentUserIdOrNull
@@ -41,7 +42,8 @@ class PostController(
     private val commentRepository: CommentRepository,
     private val challengeRepository: ChallengeRepository,
     private val challengeAttemptRepository: ChallengeAttemptRepository,
-    private val challengeParticipantRepository: ChallengeParticipantRepository
+    private val challengeParticipantRepository: ChallengeParticipantRepository,
+    private val postReportRepository: PostReportRepository
 ) {
 
     @GetMapping("/all")
@@ -489,6 +491,8 @@ class PostController(
         commentRepository.deleteByPost_Id(postId)
         postLikeRepository.deleteByPostId(postId)
         notificationRepository.deleteByPostId(postId)
+        postReportRepository.deleteByPost_Id(postId)
+        challengeParticipantRepository.deleteByPostId(postId)
         postRepository.delete(post)
 
         // 尝试删除本地图片文件，失败不影响动态删除成功
