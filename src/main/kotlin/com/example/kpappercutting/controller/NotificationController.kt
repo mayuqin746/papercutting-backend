@@ -3,6 +3,8 @@ package com.example.kpappercutting.controller
 import com.example.kpappercutting.model.InteractionNotification
 import com.example.kpappercutting.model.User
 import com.example.kpappercutting.repository.InteractionNotificationRepository
+import com.example.kpappercutting.security.currentUserId
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.transaction.Transactional
 import org.springframework.web.bind.annotation.*
 import java.time.LocalDateTime
@@ -14,20 +16,29 @@ class NotificationController(
     private val notificationRepository: InteractionNotificationRepository
 ) {
     @GetMapping
-    fun listNotifications(@RequestParam userId: Long): List<InteractionNotificationResponse> {
-        return notificationRepository.findByRecipientIdOrderByCreateTimeDesc(userId)
+    fun listNotifications(
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?
+    ): List<InteractionNotificationResponse> {
+        return notificationRepository.findByRecipientIdOrderByCreateTimeDesc(request.currentUserId())
             .map(::toResponse)
     }
 
     @GetMapping("/unread-count")
-    fun unreadCount(@RequestParam userId: Long): Map<String, Long> {
-        return mapOf("count" to notificationRepository.countByRecipientIdAndIsReadFalse(userId))
+    fun unreadCount(
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?
+    ): Map<String, Long> {
+        return mapOf("count" to notificationRepository.countByRecipientIdAndIsReadFalse(request.currentUserId()))
     }
 
     @PostMapping("/mark-read")
     @Transactional
-    fun markRead(@RequestParam userId: Long): Map<String, Any> {
-        notificationRepository.markAllRead(userId)
+    fun markRead(
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?
+    ): Map<String, Any> {
+        notificationRepository.markAllRead(request.currentUserId())
         return mapOf("status" to "success")
     }
 

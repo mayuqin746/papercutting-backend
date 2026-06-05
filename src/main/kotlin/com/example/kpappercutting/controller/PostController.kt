@@ -14,6 +14,9 @@ import com.example.kpappercutting.repository.InteractionNotificationRepository
 import com.example.kpappercutting.repository.PostLikeRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import com.example.kpappercutting.security.currentUserIdOrNull
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
 import jakarta.transaction.Transactional
 import org.springframework.web.bind.annotation.*
@@ -37,15 +40,19 @@ class PostController(
 ) {
 
     @GetMapping("/all")
-    fun getAllPosts(@RequestParam(required = false) viewerId: Long?): List<PostResponse> {
+    fun getAllPosts(
+        request: HttpServletRequest,
+        @RequestParam(required = false) viewerId: Long?
+    ): List<PostResponse> {
         return withLikedState(
             posts = postRepository.findAllByStatusOrderByCreateTimeDesc(1),
-            viewerId = viewerId
+            viewerId = request.currentUserIdOrNull() ?: viewerId
         )
     }
 
     @GetMapping("/search")
     fun searchPosts(
+        request: HttpServletRequest,
         @RequestParam keyword: String,
         @RequestParam(required = false) viewerId: Long?
     ): List<PostResponse> {
@@ -56,7 +63,7 @@ class PostController(
         return withLikedState(
             posts = postRepository.findAllByStatusOrderByLikeCountDescCreateTimeDesc(1)
                 .filter { post -> matchesPostSearch(post, searchTerms, draftFilter) },
-            viewerId = viewerId
+            viewerId = request.currentUserIdOrNull() ?: viewerId
         )
     }
 
@@ -233,10 +240,11 @@ class PostController(
 
     // 创建动态接口
     @PostMapping("/create")
-    fun createPost(@RequestBody postRequest: Map<String, Any>): ResponseEntity<Any> {
-        val userId = (postRequest["userId"] as? Number)?.toLong()
-            ?: return ResponseEntity.badRequest().body("缺少用户ID")
-
+    fun createPost(
+        request: HttpServletRequest,
+        @RequestBody postRequest: Map<String, Any>
+    ): ResponseEntity<Any> {
+        val userId = request.currentUserId()
         val content = postRequest["content"] as? String ?: ""
         val category = sanitizeCategories(postRequest["category"] as? String)
         val imageUrl = postRequest["imageUrl"] as? String
@@ -316,21 +324,23 @@ class PostController(
 
     @GetMapping("/user/{userId}")
     fun getUserPosts(
+        request: HttpServletRequest,
         @PathVariable userId: Long,
         @RequestParam(required = false) viewerId: Long?
     ): List<PostResponse> {
         return withLikedState(
             posts = postRepository.findByAuthorIdOrderByCreateTimeDesc(userId),
-            viewerId = viewerId
+            viewerId = request.currentUserIdOrNull() ?: viewerId
         )
     }
 
     @PostMapping("/like")
     @Transactional
-    fun toggleLike(@RequestBody body: Map<String, Long>): ResponseEntity<Any> {
-        val userId = body["userId"]
-            ?: return ResponseEntity.badRequest().body("缺少userId")
-
+    fun toggleLike(
+        request: HttpServletRequest,
+        @RequestBody body: Map<String, Long>
+    ): ResponseEntity<Any> {
+        val userId = request.currentUserId()
         val postId = body["postId"]
             ?: return ResponseEntity.badRequest().body("缺少postId")
 
@@ -391,24 +401,30 @@ class PostController(
 
     @GetMapping("/liked/{userId}")
     fun getLikedPosts(
+        request: HttpServletRequest,
         @PathVariable userId: Long,
         @RequestParam(required = false) viewerId: Long?
     ): List<PostResponse> {
         val likedIds = postLikeRepository.findByUserId(userId).map { it.postId }
         return withLikedState(
             posts = postRepository.findAllById(likedIds).reversed(),
-            viewerId = viewerId ?: userId
+            viewerId = request.currentUserIdOrNull() ?: viewerId ?: userId
         )
     }
 
     // 删除动态接口
     @DeleteMapping("/{postId}")
     @Transactional
-    fun deletePost(@PathVariable postId: Long, @RequestParam userId: Long): ResponseEntity<Any> {
+    fun deletePost(
+        request: HttpServletRequest,
+        @PathVariable postId: Long,
+        @RequestParam(required = false) userId: Long?
+    ): ResponseEntity<Any> {
+        val authUserId = request.currentUserId()
         val post = postRepository.findById(postId).orElse(null)
             ?: return ResponseEntity.notFound().build()
 
-        if (post.author?.id != userId) {
+        if (post.author?.id != authUserId) {
             return ResponseEntity.status(403).body("无权删除他人作品")
         }
 

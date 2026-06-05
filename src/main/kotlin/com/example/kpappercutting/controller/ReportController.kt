@@ -6,6 +6,8 @@ import com.example.kpappercutting.model.User
 import com.example.kpappercutting.repository.PostReportRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.time.LocalDateTime
@@ -19,11 +21,13 @@ class ReportController(
     private val userRepository: UserRepository
 ) {
     @PostMapping("/posts")
-    fun createPostReport(@RequestBody body: Map<String, Any>): ResponseEntity<Any> {
+    fun createPostReport(
+        request: HttpServletRequest,
+        @RequestBody body: Map<String, Any>
+    ): ResponseEntity<Any> {
         val postId = (body["postId"] as? Number)?.toLong()
             ?: return ResponseEntity.badRequest().body(mapOf("message" to "缺少postId"))
-        val reporterId = (body["reporterId"] as? Number)?.toLong()
-            ?: return ResponseEntity.badRequest().body(mapOf("message" to "缺少reporterId"))
+        val reporterId = request.currentUserId()
         val reason = (body["reason"] as? String)?.trim()?.take(80).orEmpty()
         val description = (body["description"] as? String)?.trim()?.take(500).orEmpty()
 

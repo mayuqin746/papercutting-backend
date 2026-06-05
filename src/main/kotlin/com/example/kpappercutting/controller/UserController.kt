@@ -5,6 +5,9 @@ import com.example.kpappercutting.model.UserFollow
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserFollowRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import com.example.kpappercutting.security.currentUserIdOrNull
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.transaction.Transactional
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -19,17 +22,19 @@ class UserController(
 ) {
     @GetMapping("/{userId}")
     fun getUserProfile(
+        request: HttpServletRequest,
         @PathVariable userId: Long,
         @RequestParam(required = false) viewerId: Long?
     ): ResponseEntity<Any> {
         val user = userRepository.findById(userId).orElse(null)
             ?: return ResponseEntity.notFound().build()
 
-        return ResponseEntity.ok(user.toProfileResponse(viewerId))
+        return ResponseEntity.ok(user.toProfileResponse(request.currentUserIdOrNull() ?: viewerId))
     }
 
     @GetMapping("/{userId}/following")
     fun getFollowingUsers(
+        request: HttpServletRequest,
         @PathVariable userId: Long,
         @RequestParam(required = false) viewerId: Long?
     ): ResponseEntity<Any> {
@@ -39,13 +44,14 @@ class UserController(
 
         val followingIds = userFollowRepository.findByFollowerId(userId).map { it.followingId }
         val users = userRepository.findAllById(followingIds).associateBy { it.id }
-        val response = followingIds.mapNotNull { id -> users[id]?.toProfileResponse(viewerId) }
+        val response = followingIds.mapNotNull { id -> users[id]?.toProfileResponse(request.currentUserIdOrNull() ?: viewerId) }
 
         return ResponseEntity.ok(response)
     }
 
     @GetMapping("/{userId}/followers")
     fun getFollowerUsers(
+        request: HttpServletRequest,
         @PathVariable userId: Long,
         @RequestParam(required = false) viewerId: Long?
     ): ResponseEntity<Any> {
@@ -55,16 +61,18 @@ class UserController(
 
         val followerIds = userFollowRepository.findByFollowingId(userId).map { it.followerId }
         val users = userRepository.findAllById(followerIds).associateBy { it.id }
-        val response = followerIds.mapNotNull { id -> users[id]?.toProfileResponse(viewerId) }
+        val response = followerIds.mapNotNull { id -> users[id]?.toProfileResponse(request.currentUserIdOrNull() ?: viewerId) }
 
         return ResponseEntity.ok(response)
     }
 
     @Transactional
     @PostMapping("/follow")
-    fun follow(@RequestBody body: Map<String, Long>): ResponseEntity<Any> {
-        val followerId = body["followerId"]
-            ?: return ResponseEntity.badRequest().body(mapOf("message" to "缺少followerId"))
+    fun follow(
+        request: HttpServletRequest,
+        @RequestBody body: Map<String, Long>
+    ): ResponseEntity<Any> {
+        val followerId = request.currentUserId()
         val followingId = body["followingId"]
             ?: return ResponseEntity.badRequest().body(mapOf("message" to "缺少followingId"))
 
@@ -88,9 +96,11 @@ class UserController(
 
     @Transactional
     @PostMapping("/follow/toggle")
-    fun toggleFollow(@RequestBody body: Map<String, Long>): ResponseEntity<Any> {
-        val followerId = body["followerId"]
-            ?: return ResponseEntity.badRequest().body(mapOf("message" to "缺少followerId"))
+    fun toggleFollow(
+        request: HttpServletRequest,
+        @RequestBody body: Map<String, Long>
+    ): ResponseEntity<Any> {
+        val followerId = request.currentUserId()
         val followingId = body["followingId"]
             ?: return ResponseEntity.badRequest().body(mapOf("message" to "缺少followingId"))
 

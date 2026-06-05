@@ -6,6 +6,9 @@ import com.example.kpappercutting.repository.ChallengeAttemptRepository
 import com.example.kpappercutting.repository.ChallengeParticipantRepository
 import com.example.kpappercutting.repository.ChallengeRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import com.example.kpappercutting.security.currentUserIdOrNull
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.time.LocalDateTime
@@ -37,20 +40,23 @@ class ChallengeController(
     private val userRepository: UserRepository
 ) {
     @GetMapping("/current")
-    fun getCurrentChallenge(@RequestParam(required = false) userId: Long?): ResponseEntity<Any> {
+    fun getCurrentChallenge(
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?
+    ): ResponseEntity<Any> {
         val challenge = challengeRepository.findFirstByStatusOrderByStartTimeDescIdDesc(CHALLENGE_STATUS_PUBLISHED)
             ?: return ResponseEntity.ok(CurrentChallengeResponse(challenge = null))
 
-        return ResponseEntity.ok(toCurrentChallengeResponse(challenge, userId))
+        return ResponseEntity.ok(toCurrentChallengeResponse(challenge, request.currentUserIdOrNull() ?: userId))
     }
 
     @PostMapping("/{challengeId}/attempt")
     fun attemptChallenge(
+        request: HttpServletRequest,
         @PathVariable challengeId: Long,
         @RequestBody body: Map<String, Any>
     ): ResponseEntity<Any> {
-        val userId = (body["userId"] as? Number)?.toLong()
-            ?: return ResponseEntity.badRequest().body("缺少用户ID")
+        val userId = request.currentUserId()
 
         if (!userRepository.existsById(userId)) {
             return ResponseEntity.status(404).body("用户不存在")

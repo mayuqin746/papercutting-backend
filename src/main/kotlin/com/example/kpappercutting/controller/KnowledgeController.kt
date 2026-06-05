@@ -12,6 +12,8 @@ import com.example.kpappercutting.repository.KnowledgeRepository
 import com.example.kpappercutting.repository.KnowledgeSubmissionRepository
 import com.example.kpappercutting.repository.UserReadRecordRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.transaction.Transactional
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -55,17 +57,21 @@ class KnowledgeController(
     private val appZone: ZoneId = ZoneId.of("Asia/Shanghai")
 
     @GetMapping("/home")
-    fun getHomeKnowledge(@RequestParam userId: Long): ResponseEntity<KnowledgeHomeResponse> {
+    fun getHomeKnowledge(
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?
+    ): ResponseEntity<KnowledgeHomeResponse> {
+        val authUserId = request.currentUserId()
         val allKnowledge = knowledgeRepository.findByStatusOrderByIdAsc(KNOWLEDGE_STATUS_PUBLISHED)
-        val userCollections = collectionRepository.findByUserIdOrderByCreateTimeAsc(userId)
+        val userCollections = collectionRepository.findByUserIdOrderByCreateTimeAsc(authUserId)
         val collectedIds = userCollections.map { it.knowledgeId }.toSet()
-        val readIds = readRecordRepository.findByUserId(userId).map { it.knowledgeId }.toSet()
+        val readIds = readRecordRepository.findByUserId(authUserId).map { it.knowledgeId }.toSet()
         val answeredCorrectIds = allKnowledge
-            .mapNotNull { knowledge -> answerRecordRepository.findByUserIdAndKnowledgeId(userId, knowledge.id) }
+            .mapNotNull { knowledge -> answerRecordRepository.findByUserIdAndKnowledgeId(authUserId, knowledge.id) }
             .filter { it.isCorrect }
             .map { it.knowledgeId }
             .toSet()
-        val todayReadCount = todayReadCount(userId).toInt()
+        val todayReadCount = todayReadCount(authUserId).toInt()
 
         return ResponseEntity.ok(
             KnowledgeHomeResponse(
@@ -88,8 +94,11 @@ class KnowledgeController(
     }
 
     @PostMapping("/open")
-    fun openKnowledge(@RequestBody request: KnowledgeOpenRequest): ResponseEntity<Any> {
-        val userId = request.userId
+    fun openKnowledge(
+        httpRequest: HttpServletRequest,
+        @RequestBody request: KnowledgeOpenRequest
+    ): ResponseEntity<Any> {
+        val userId = httpRequest.currentUserId()
         val knowledgeId = request.knowledgeId
         if (!userRepository.existsById(userId)) return ResponseEntity.status(404).body("用户不存在")
         val knowledge = knowledgeRepository.findById(knowledgeId).orElse(null)
@@ -126,7 +135,11 @@ class KnowledgeController(
     }
 
     @PostMapping("/answer")
-    fun answerKnowledge(@RequestBody request: KnowledgeAnswerRequest): ResponseEntity<KnowledgeAnswerResponse> {
+    fun answerKnowledge(
+        httpRequest: HttpServletRequest,
+        @RequestBody request: KnowledgeAnswerRequest
+    ): ResponseEntity<KnowledgeAnswerResponse> {
+        val userId = httpRequest.currentUserId()
         val knowledge = knowledgeRepository.findById(request.knowledgeId).orElse(null)
             ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
                 KnowledgeAnswerResponse(success = false, message = "科普知识不存在")
@@ -136,7 +149,7 @@ class KnowledgeController(
                 KnowledgeAnswerResponse(success = false, message = "科普知识不存在")
             )
         }
-        if (readRecordRepository.findByUserIdAndKnowledgeId(request.userId, request.knowledgeId) == null) {
+        if (readRecordRepository.findByUserIdAndKnowledgeId(userId, request.knowledgeId) == null) {
             return ResponseEntity.badRequest().body(
                 KnowledgeAnswerResponse(success = false, message = "请先阅读该科普知识")
             )
@@ -148,13 +161,13 @@ class KnowledgeController(
         }
 
         val isCorrect = normalizeAnswer(request.answer) == normalizeAnswer(knowledge.answer)
-        val existing = answerRecordRepository.findByUserIdAndKnowledgeId(request.userId, request.knowledgeId)
+        val existing = answerRecordRepository.findByUserIdAndKnowledgeId(userId, request.knowledgeId)
         val record = existing?.copy(
             selectedAnswer = request.answer,
             isCorrect = isCorrect,
             answeredAt = LocalDateTime.now(appZone)
         ) ?: KnowledgeAnswerRecord(
-            userId = request.userId,
+            userId = userId,
             knowledgeId = request.knowledgeId,
             selectedAnswer = request.answer,
             isCorrect = isCorrect,
@@ -174,8 +187,11 @@ class KnowledgeController(
     }
 
     @PostMapping("/collect")
-    fun collectKnowledge(@RequestBody body: Map<String, Long>): ResponseEntity<Any> {
-        val userId = body["userId"] ?: return ResponseEntity.badRequest().body("missing userId")
+    fun collectKnowledge(
+        request: HttpServletRequest,
+        @RequestBody body: Map<String, Long>
+    ): ResponseEntity<Any> {
+        val userId = request.currentUserId()
         val knowledgeId = body["knowledgeId"] ?: return ResponseEntity.badRequest().body("missing knowledgeId")
         val answerRecord = answerRecordRepository.findByUserIdAndKnowledgeId(userId, knowledgeId)
         if (answerRecord?.isCorrect != true) {
@@ -190,8 +206,12 @@ class KnowledgeController(
     }
 
     @GetMapping("/collections/{userId}")
-    fun getCollections(@PathVariable userId: Long): ResponseEntity<KnowledgeCollectionPageResponse> {
-        val collections = collectionRepository.findByUserIdOrderByCreateTimeAsc(userId)
+    fun getCollections(
+        request: HttpServletRequest,
+        @PathVariable userId: Long
+    ): ResponseEntity<KnowledgeCollectionPageResponse> {
+        val authUserId = request.currentUserId()
+        val collections = collectionRepository.findByUserIdOrderByCreateTimeAsc(authUserId)
         val collectionMap = collections.associateBy { it.knowledgeId }
         val collectedData = knowledgeRepository.findAllById(collectionMap.keys)
             .sortedBy { collectionMap[it.id]?.createTime }
@@ -204,13 +224,16 @@ class KnowledgeController(
                 )
             }
 
-        val submissions = submissionRepository.findByUserIdOrderByCreateTimeDesc(userId).map(::toSubmissionDto)
+        val submissions = submissionRepository.findByUserIdOrderByCreateTimeDesc(authUserId).map(::toSubmissionDto)
         return ResponseEntity.ok(KnowledgeCollectionPageResponse(collections = collectedData, submissions = submissions))
     }
 
     @PostMapping("/submissions")
-    fun createSubmission(@RequestBody request: KnowledgeSubmissionRequest): ResponseEntity<Any> {
-        val userId = request.userId ?: return ResponseEntity.badRequest().body("缺少用户ID")
+    fun createSubmission(
+        httpRequest: HttpServletRequest,
+        @RequestBody request: KnowledgeSubmissionRequest
+    ): ResponseEntity<Any> {
+        val userId = httpRequest.currentUserId()
         if (!userRepository.existsById(userId)) return ResponseEntity.status(404).body("用户不存在")
         val validationError = validateSubmission(request)
         if (validationError != null) return ResponseEntity.badRequest().body(validationError)
@@ -232,8 +255,11 @@ class KnowledgeController(
     }
 
     @GetMapping("/submissions/{userId}")
-    fun getUserSubmissions(@PathVariable userId: Long): List<KnowledgeSubmissionDto> {
-        return submissionRepository.findByUserIdOrderByCreateTimeDesc(userId).map(::toSubmissionDto)
+    fun getUserSubmissions(
+        request: HttpServletRequest,
+        @PathVariable userId: Long
+    ): List<KnowledgeSubmissionDto> {
+        return submissionRepository.findByUserIdOrderByCreateTimeDesc(request.currentUserId()).map(::toSubmissionDto)
     }
 
     @GetMapping("/admin/submissions")

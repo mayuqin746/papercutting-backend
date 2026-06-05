@@ -5,6 +5,9 @@ import com.example.kpappercutting.model.FortuneCardCollection
 import com.example.kpappercutting.repository.FortuneCardCollectionRepository
 import com.example.kpappercutting.repository.FortuneCardRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import com.example.kpappercutting.security.currentUserIdOrNull
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.GetMapping
@@ -30,9 +33,13 @@ class FortuneController(
     private val appZone: ZoneId = ZoneId.of("Asia/Shanghai")
 
     @GetMapping("/today")
-    fun getTodayFortune(@RequestParam(required = false) userId: Long?): FortuneHomeResponse {
+    fun getTodayFortune(
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?
+    ): FortuneHomeResponse {
         val todayCard = fortuneCardRepository.findByDisplayDate(LocalDate.now(appZone))
-        val collections = userId?.let { collectionRepository.findByUserIdOrderByCollectTimeAsc(it) }.orEmpty()
+        val effectiveUserId = request.currentUserIdOrNull() ?: userId
+        val collections = effectiveUserId?.let { collectionRepository.findByUserIdOrderByCollectTimeAsc(it) }.orEmpty()
         val collectedCardIds = collections.map { it.fortuneCardId }.toSet()
         val collectedCards = if (collectedCardIds.isEmpty()) {
             emptyList()
@@ -50,8 +57,11 @@ class FortuneController(
     }
 
     @PostMapping("/collect")
-    fun collectFortune(@RequestBody body: Map<String, Long>): ResponseEntity<Any> {
-        val userId = body["userId"] ?: return ResponseEntity.badRequest().body("缺少用户ID")
+    fun collectFortune(
+        request: HttpServletRequest,
+        @RequestBody body: Map<String, Long>
+    ): ResponseEntity<Any> {
+        val userId = request.currentUserId()
         val fortuneCardId = body["fortuneCardId"] ?: return ResponseEntity.badRequest().body("缺少福运卡ID")
 
         if (!userRepository.existsById(userId)) {

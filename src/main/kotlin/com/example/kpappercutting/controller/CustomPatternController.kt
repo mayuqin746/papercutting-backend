@@ -3,6 +3,8 @@ package com.example.kpappercutting.controller
 import com.example.kpappercutting.model.UserCustomPattern
 import com.example.kpappercutting.repository.UserCustomPatternRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -23,18 +25,23 @@ class CustomPatternController(
     private val userRepository: UserRepository
 ) {
     @GetMapping
-    fun listPatterns(@RequestParam userId: Long): ResponseEntity<Any> {
-        if (!userRepository.existsById(userId)) {
+    fun listPatterns(
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?
+    ): ResponseEntity<Any> {
+        val authUserId = request.currentUserId()
+        if (!userRepository.existsById(authUserId)) {
             return ResponseEntity.status(404).body(mapOf("message" to "用户不存在"))
         }
         return ResponseEntity.ok(
-            customPatternRepository.findByUserIdOrderByUpdatedAtDesc(userId).map(::toResponse)
+            customPatternRepository.findByUserIdOrderByUpdatedAtDesc(authUserId).map(::toResponse)
         )
     }
 
     @PostMapping(consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     fun savePattern(
-        @RequestParam userId: Long,
+        request: HttpServletRequest,
+        @RequestParam(required = false) userId: Long?,
         @RequestParam(required = false) patternId: String?,
         @RequestParam displayName: String,
         @RequestParam normalizedPathJson: String,
@@ -43,12 +50,13 @@ class CustomPatternController(
         if (normalizedPathJson.isBlank()) {
             return ResponseEntity.badRequest().body(mapOf("message" to "图案路径不能为空"))
         }
-        val user = userRepository.findById(userId).orElse(null)
+        val authUserId = request.currentUserId()
+        val user = userRepository.findById(authUserId).orElse(null)
             ?: return ResponseEntity.status(404).body(mapOf("message" to "用户不存在"))
 
         val resolvedPatternId = patternId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
-        val existing = customPatternRepository.findByPatternIdAndUserId(resolvedPatternId, userId)
-        val patternDir = File(CUSTOM_PATTERN_ROOT, "$userId/$resolvedPatternId").apply { mkdirs() }
+        val existing = customPatternRepository.findByPatternIdAndUserId(resolvedPatternId, authUserId)
+        val patternDir = File(CUSTOM_PATTERN_ROOT, "$authUserId/$resolvedPatternId").apply { mkdirs() }
         val imageUrl = if (imageFile != null && !imageFile.isEmpty) {
             val extension = when {
                 imageFile.contentType?.contains("png") == true -> "png"
@@ -57,7 +65,7 @@ class CustomPatternController(
             }
             val destination = File(patternDir, "pattern.$extension")
             imageFile.transferTo(destination)
-            "/custom-patterns/$userId/$resolvedPatternId/pattern.$extension"
+            "/custom-patterns/$authUserId/$resolvedPatternId/pattern.$extension"
         } else {
             existing?.imageUrl ?: ""
         }
@@ -82,13 +90,15 @@ class CustomPatternController(
 
     @DeleteMapping("/{patternId}")
     fun deletePattern(
+        request: HttpServletRequest,
         @PathVariable patternId: String,
-        @RequestParam userId: Long
+        @RequestParam(required = false) userId: Long?
     ): ResponseEntity<Any> {
-        val existing = customPatternRepository.findByPatternIdAndUserId(patternId, userId)
+        val authUserId = request.currentUserId()
+        val existing = customPatternRepository.findByPatternIdAndUserId(patternId, authUserId)
             ?: return ResponseEntity.status(404).body(mapOf("message" to "图案不存在"))
         customPatternRepository.delete(existing)
-        File(CUSTOM_PATTERN_ROOT, "$userId/$patternId").deleteRecursively()
+        File(CUSTOM_PATTERN_ROOT, "$authUserId/$patternId").deleteRecursively()
         return ResponseEntity.ok(mapOf("message" to "删除成功"))
     }
 

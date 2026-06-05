@@ -7,6 +7,8 @@ import com.example.kpappercutting.repository.CommentRepository
 import com.example.kpappercutting.repository.InteractionNotificationRepository
 import com.example.kpappercutting.repository.PostRepository
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.currentUserId
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.transaction.Transactional
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -26,10 +28,13 @@ class CommentController(
 
     // 发表评论
     @PostMapping("/create")
-    fun createComment(@RequestBody body: Map<String, Any>): ResponseEntity<Any> {
+    fun createComment(
+        request: HttpServletRequest,
+        @RequestBody body: Map<String, Any>
+    ): ResponseEntity<Any> {
         try {
             val postId = (body["postId"] as Number).toLong()
-            val userId = (body["userId"] as Number).toLong()
+            val userId = request.currentUserId()
             val content = body["content"] as String
 
             val post = postRepository.findById(postId).orElse(null)
@@ -67,12 +72,17 @@ class CommentController(
     // 删除评论
     @DeleteMapping("/{commentId}")
     @Transactional
-    fun deleteComment(@PathVariable commentId: Long, @RequestParam userId: Long): ResponseEntity<Any> {
+    fun deleteComment(
+        request: HttpServletRequest,
+        @PathVariable commentId: Long,
+        @RequestParam(required = false) userId: Long?
+    ): ResponseEntity<Any> {
+        val authUserId = request.currentUserId()
         val comment = commentRepository.findById(commentId).orElse(null)
             ?: return ResponseEntity.notFound().build()
 
         // 权限校验：只能删除自己的评论
-        if (comment.author?.id != userId) return ResponseEntity.status(403).build()
+        if (comment.author?.id != authUserId) return ResponseEntity.status(403).build()
 
         val post = comment.post // 获取该评论关联的动态
         commentRepository.delete(comment)

@@ -3,6 +3,9 @@ package com.example.kpappercutting.controller
 
 import com.example.kpappercutting.model.User
 import com.example.kpappercutting.repository.UserRepository
+import com.example.kpappercutting.security.JwtService
+import com.example.kpappercutting.security.currentUserId
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
@@ -11,7 +14,10 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/api/auth")
-class AuthController(private val userRepository: UserRepository) {
+class AuthController(
+    private val userRepository: UserRepository,
+    private val jwtService: JwtService
+) {
 
     @PostMapping("/login")
     fun login(@RequestBody loginRequest: Map<String, String>): ResponseEntity<Any> {
@@ -21,7 +27,7 @@ class AuthController(private val userRepository: UserRepository) {
         val user = userRepository.findByUsername(username)
 
         return if (user != null && user.password == password) {
-            ResponseEntity.ok(user)
+            ResponseEntity.ok(user.toAuthResponse())
         } else {
             ResponseEntity.status(401).body(mapOf("message" to "用户名或密码错误"))
         }
@@ -54,13 +60,16 @@ class AuthController(private val userRepository: UserRepository) {
         )
 
         val savedUser = userRepository.save(userToSave)
-        return ResponseEntity.ok(savedUser)
+        return ResponseEntity.ok(savedUser.toAuthResponse())
     }
 
     // 修改个人资料
     @PutMapping("/update")
-    fun updateProfile(@RequestBody updatedUser: User): ResponseEntity<Any> {
-        val existingUser = userRepository.findById(updatedUser.id).orElse(null)
+    fun updateProfile(
+        request: HttpServletRequest,
+        @RequestBody updatedUser: User
+    ): ResponseEntity<Any> {
+        val existingUser = userRepository.findById(request.currentUserId()).orElse(null)
             ?: return ResponseEntity.status(404).body(mapOf("message" to "用户不存在"))
 
         val savedUser = userRepository.save(
@@ -71,17 +80,19 @@ class AuthController(private val userRepository: UserRepository) {
             )
         )
 
-        return ResponseEntity.ok(savedUser)
+        return ResponseEntity.ok(savedUser.toSafeResponse())
     }
 
     // 个人页上传图片接口：头像 / 背景图
     @PostMapping("/upload")
     fun uploadImage(
-        @RequestParam("userId") userId: Long,
+        request: HttpServletRequest,
+        @RequestParam("userId", required = false) userId: Long?,
         @RequestParam("type") type: String,
         @RequestParam("image") file: MultipartFile
     ): ResponseEntity<Any> {
-        val user = userRepository.findById(userId).orElse(null)
+        val authUserId = request.currentUserId()
+        val user = userRepository.findById(authUserId).orElse(null)
             ?: return ResponseEntity.notFound().build()
 
         return try {
@@ -124,7 +135,7 @@ class AuthController(private val userRepository: UserRepository) {
                 user.copy(backgroundUrl = imageUrl)
             }
 
-            ResponseEntity.ok(userRepository.save(updatedUser))
+            ResponseEntity.ok(userRepository.save(updatedUser).toSafeResponse())
         } catch (e: Exception) {
             ResponseEntity.internalServerError().body(e.message)
         }
@@ -132,10 +143,11 @@ class AuthController(private val userRepository: UserRepository) {
 
     // 修改密码接口，先校验旧密码对不对，对了才允许改新密码。
     @PostMapping("/change-password")
-    fun changePassword(@RequestBody request: Map<String, String>): ResponseEntity<Any> {
-        val userId = request["userId"]?.toLong()
-            ?: return ResponseEntity.badRequest().body("参数错误")
-
+    fun changePassword(
+        httpRequest: HttpServletRequest,
+        @RequestBody request: Map<String, String>
+    ): ResponseEntity<Any> {
+        val userId = httpRequest.currentUserId()
         val oldPassword = request["oldPassword"] ?: ""
         val newPassword = request["newPassword"] ?: ""
 
@@ -156,4 +168,44 @@ class AuthController(private val userRepository: UserRepository) {
 
         return ResponseEntity.ok(mapOf("message" to "修改成功"))
     }
+
+    private fun User.toAuthResponse(): AuthResponse {
+        return AuthResponse(
+            token = jwtService.generateToken(id, username),
+            user = toSafeResponse()
+        )
+    }
+
+    private fun User.toSafeResponse(): UserResponse {
+        return UserResponse(
+            id = id,
+            username = username,
+            nickname = nickname,
+            region = region,
+            bio = bio,
+            followingCount = followingCount,
+            followerCount = followerCount,
+            likedCount = likedCount,
+            avatarUrl = avatarUrl,
+            backgroundUrl = backgroundUrl
+        )
+    }
 }
+
+data class AuthResponse(
+    val token: String,
+    val user: UserResponse
+)
+
+data class UserResponse(
+    val id: Long = 0,
+    val username: String = "",
+    val nickname: String = "",
+    val region: String = "",
+    val bio: String = "",
+    val followingCount: Int = 0,
+    val followerCount: Int = 0,
+    val likedCount: Int = 0,
+    val avatarUrl: String? = null,
+    val backgroundUrl: String? = null
+)
