@@ -1,5 +1,8 @@
 package com.example.kpappercutting.controller
 
+import com.example.kpappercutting.config.FortuneCardSchemaMigrator
+import com.example.kpappercutting.model.FORTUNE_CARD_STATUS_ARCHIVED
+import com.example.kpappercutting.model.FORTUNE_CARD_STATUS_PUBLISHED
 import com.example.kpappercutting.model.FortuneCard
 import com.example.kpappercutting.model.FortuneCardCollection
 import com.example.kpappercutting.repository.FortuneCardCollectionRepository
@@ -11,7 +14,9 @@ import jakarta.servlet.http.HttpServletRequest
 import org.springframework.data.domain.Sort
 import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.ResponseEntity
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.CrossOrigin
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -30,7 +35,8 @@ import java.time.ZoneId
 class FortuneController(
     private val fortuneCardRepository: FortuneCardRepository,
     private val collectionRepository: FortuneCardCollectionRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val schemaMigrator: FortuneCardSchemaMigrator
 ) {
     private val appZone: ZoneId = ZoneId.of("Asia/Shanghai")
 
@@ -39,7 +45,11 @@ class FortuneController(
         request: HttpServletRequest,
         @RequestParam(required = false) userId: Long?
     ): FortuneHomeResponse {
-        val todayCard = fortuneCardRepository.findByDisplayDate(LocalDate.now(appZone))
+        schemaMigrator.ensureStatusColumn()
+        val todayCard = fortuneCardRepository.findPublishedByDisplayDate(
+            LocalDate.now(appZone),
+            FORTUNE_CARD_STATUS_PUBLISHED
+        )
         val effectiveUserId = request.currentUserIdOrNull() ?: userId
         val collections = effectiveUserId?.let { collectionRepository.findByUserIdOrderByCollectTimeAsc(it) }.orEmpty()
         val collectedCardIds = collections.map { it.fortuneCardId }.toSet()
@@ -47,6 +57,7 @@ class FortuneController(
             emptyList()
         } else {
             fortuneCardRepository.findAllById(collectedCardIds)
+                .filter { normalizeFortuneCardStatus(it.status) == FORTUNE_CARD_STATUS_PUBLISHED }
                 .sortedBy { card -> collections.find { it.fortuneCardId == card.id }?.collectTime }
                 .map(::toFortuneCardDto)
         }
@@ -63,13 +74,15 @@ class FortuneController(
         request: HttpServletRequest,
         @RequestBody body: Map<String, Long>
     ): ResponseEntity<Any> {
+        schemaMigrator.ensureStatusColumn()
         val userId = request.currentUserId()
         val fortuneCardId = body["fortuneCardId"] ?: return ResponseEntity.badRequest().body("缺少福运卡ID")
 
         if (!userRepository.existsById(userId)) {
             return ResponseEntity.status(404).body("用户不存在")
         }
-        if (!fortuneCardRepository.existsById(fortuneCardId)) {
+        val fortuneCard = fortuneCardRepository.findById(fortuneCardId).orElse(null)
+        if (fortuneCard == null || normalizeFortuneCardStatus(fortuneCard.status) != FORTUNE_CARD_STATUS_PUBLISHED) {
             return ResponseEntity.status(404).body("福运卡不存在")
         }
 
@@ -89,20 +102,23 @@ class FortuneController(
 
     @GetMapping("/admin")
     fun getAdminFortuneCards(
+        @RequestParam(defaultValue = "all") status: String,
         @RequestParam(defaultValue = "") keyword: String,
         @RequestParam(required = false) fromDate: LocalDate?,
         @RequestParam(required = false) toDate: LocalDate?,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int
     ): AdminPageResponse<FortuneCardDto> {
+        schemaMigrator.ensureStatusColumn()
         val pageable = adminPageRequest(page, size, Sort.by(Sort.Order.desc("displayDate"), Sort.Order.desc("id")))
         return fortuneCardRepository
-            .findAll(buildFortuneCardSpecification(keyword, fromDate, toDate), pageable)
+            .findAll(buildFortuneCardSpecification(status, keyword, fromDate, toDate), pageable)
             .toAdminPageResponse(::toFortuneCardDto)
     }
 
     @PostMapping("/admin")
     fun createAdminFortuneCard(@RequestBody request: FortuneCardRequest): ResponseEntity<Any> {
+        schemaMigrator.ensureStatusColumn()
         val validationError = validateFortuneCardRequest(request)
         if (validationError != null) return ResponseEntity.badRequest().body(validationError)
         val existing = fortuneCardRepository.findByDisplayDate(request.displayDate)
@@ -113,7 +129,8 @@ class FortuneController(
             patternImageUrl = request.patternImageUrl.trim(),
             lunarDate = request.lunarDate.trim(),
             solarTerm = request.solarTerm.trim(),
-            suitableEvents = request.suitableEvents.trim()
+            suitableEvents = request.suitableEvents.trim(),
+            status = normalizeFortuneCardStatus(request.status)
         )
 
         return ResponseEntity.ok(toFortuneCardDto(fortuneCardRepository.save(card)))
@@ -124,6 +141,7 @@ class FortuneController(
         @PathVariable fortuneCardId: Long,
         @RequestBody request: FortuneCardRequest
     ): ResponseEntity<Any> {
+        schemaMigrator.ensureStatusColumn()
         val existing = fortuneCardRepository.findById(fortuneCardId).orElse(null)
             ?: return ResponseEntity.notFound().build()
         val validationError = validateFortuneCardRequest(request)
@@ -139,10 +157,38 @@ class FortuneController(
             lunarDate = request.lunarDate.trim(),
             solarTerm = request.solarTerm.trim(),
             suitableEvents = request.suitableEvents.trim(),
+            status = normalizeFortuneCardStatus(request.status),
             updateTime = LocalDateTime.now()
         )
 
         return ResponseEntity.ok(toFortuneCardDto(fortuneCardRepository.save(updated)))
+    }
+
+    @PostMapping("/admin/{fortuneCardId}/status")
+    fun updateAdminFortuneCardStatus(
+        @PathVariable fortuneCardId: Long,
+        @RequestBody request: FortuneCardStatusRequest
+    ): ResponseEntity<Any> {
+        schemaMigrator.ensureStatusColumn()
+        val existing = fortuneCardRepository.findById(fortuneCardId).orElse(null)
+            ?: return ResponseEntity.notFound().build()
+        val updated = existing.copy(
+            status = normalizeFortuneCardStatus(request.status),
+            updateTime = LocalDateTime.now()
+        )
+        return ResponseEntity.ok(toFortuneCardDto(fortuneCardRepository.save(updated)))
+    }
+
+    @Transactional
+    @DeleteMapping("/admin/{fortuneCardId}")
+    fun deleteAdminFortuneCard(@PathVariable fortuneCardId: Long): ResponseEntity<Any> {
+        schemaMigrator.ensureStatusColumn()
+        if (!fortuneCardRepository.existsById(fortuneCardId)) {
+            return ResponseEntity.notFound().build()
+        }
+        collectionRepository.deleteByFortuneCardId(fortuneCardId)
+        fortuneCardRepository.deleteById(fortuneCardId)
+        return ResponseEntity.ok(mapOf("success" to true))
     }
 
     private fun validateFortuneCardRequest(request: FortuneCardRequest): String? {
@@ -160,18 +206,40 @@ class FortuneController(
             patternImageUrl = card.patternImageUrl,
             lunarDate = card.lunarDate,
             solarTerm = card.solarTerm,
-            suitableEvents = card.suitableEvents
+            suitableEvents = card.suitableEvents,
+            status = normalizeFortuneCardStatus(card.status)
         )
     }
 
+    private fun normalizeFortuneCardStatus(status: String?): String {
+        return when (status?.trim()?.uppercase()) {
+            FORTUNE_CARD_STATUS_ARCHIVED -> FORTUNE_CARD_STATUS_ARCHIVED
+            else -> FORTUNE_CARD_STATUS_PUBLISHED
+        }
+    }
+
     private fun buildFortuneCardSpecification(
+        status: String,
         keyword: String,
         fromDate: LocalDate?,
         toDate: LocalDate?
     ): Specification<FortuneCard> {
+        val normalizedStatus = status.trim().uppercase().takeIf {
+            it in setOf(FORTUNE_CARD_STATUS_PUBLISHED, FORTUNE_CARD_STATUS_ARCHIVED)
+        }
         val safeKeyword = keyword.trim().lowercase().take(120)
         return Specification { root, _, criteriaBuilder ->
             val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
+            normalizedStatus?.let {
+                if (it == FORTUNE_CARD_STATUS_PUBLISHED) {
+                    predicates += criteriaBuilder.or(
+                        criteriaBuilder.isNull(root.get<String>("status")),
+                        criteriaBuilder.equal(root.get<String>("status"), it)
+                    )
+                } else {
+                    predicates += criteriaBuilder.equal(root.get<String>("status"), it)
+                }
+            }
             fromDate?.let {
                 predicates += criteriaBuilder.greaterThanOrEqualTo(root.get("displayDate"), it)
             }
@@ -197,7 +265,12 @@ data class FortuneCardRequest(
     val patternImageUrl: String,
     val lunarDate: String,
     val solarTerm: String,
-    val suitableEvents: String
+    val suitableEvents: String,
+    val status: String = FORTUNE_CARD_STATUS_PUBLISHED
+)
+
+data class FortuneCardStatusRequest(
+    val status: String
 )
 
 data class FortuneCardDto(
@@ -206,7 +279,8 @@ data class FortuneCardDto(
     val patternImageUrl: String,
     val lunarDate: String,
     val solarTerm: String,
-    val suitableEvents: String
+    val suitableEvents: String,
+    val status: String = FORTUNE_CARD_STATUS_PUBLISHED
 )
 
 data class FortuneHomeResponse(

@@ -11,6 +11,9 @@ import jakarta.persistence.UniqueConstraint
 import java.time.LocalDate
 import java.time.LocalDateTime
 
+const val FORTUNE_CARD_STATUS_PUBLISHED = "PUBLISHED"
+const val FORTUNE_CARD_STATUS_ARCHIVED = "ARCHIVED"
+
 @Entity
 @Table(
     name = "fortune_cards",
@@ -39,6 +42,9 @@ data class FortuneCard(
 
     @Column(name = "suitable_events", length = 160)
     val suitableEvents: String = "",
+
+    @Column(length = 20)
+    val status: String? = FORTUNE_CARD_STATUS_PUBLISHED,
 
     val createTime: LocalDateTime = LocalDateTime.now(),
     val updateTime: LocalDateTime = LocalDateTime.now()

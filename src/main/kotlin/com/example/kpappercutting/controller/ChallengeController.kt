@@ -12,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest
 import org.springframework.data.domain.Sort
 import org.springframework.data.jpa.domain.Specification
 import org.springframework.http.ResponseEntity
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.*
 import java.time.LocalDateTime
 
@@ -153,6 +154,30 @@ class ChallengeController(
         return ResponseEntity.ok(toAdminChallengeResponse(challengeRepository.save(updated)))
     }
 
+    @PostMapping("/admin/{challengeId}/status")
+    fun updateAdminChallengeStatus(
+        @PathVariable challengeId: Long,
+        @RequestBody request: ChallengeStatusRequest
+    ): ResponseEntity<Any> {
+        val existing = challengeRepository.findById(challengeId).orElse(null)
+            ?: return ResponseEntity.notFound().build()
+
+        val updated = existing.copy(status = normalizeChallengeStatus(request.status))
+        return ResponseEntity.ok(toAdminChallengeResponse(challengeRepository.save(updated)))
+    }
+
+    @Transactional
+    @DeleteMapping("/admin/{challengeId}")
+    fun deleteAdminChallenge(@PathVariable challengeId: Long): ResponseEntity<Any> {
+        if (!challengeRepository.existsById(challengeId)) {
+            return ResponseEntity.notFound().build()
+        }
+        challengeAttemptRepository.deleteByChallengeId(challengeId)
+        challengeParticipantRepository.deleteByChallengeId(challengeId)
+        challengeRepository.deleteById(challengeId)
+        return ResponseEntity.ok(mapOf("success" to true))
+    }
+
     private fun toCurrentChallengeResponse(challenge: Challenge, userId: Long?): CurrentChallengeResponse {
         val now = LocalDateTime.now()
         val hasAttempted = userId?.let {
@@ -258,6 +283,10 @@ data class ChallengeRequest(
     val startTime: LocalDateTime,
     val deadline: LocalDateTime,
     val status: String = CHALLENGE_STATUS_DRAFT
+)
+
+data class ChallengeStatusRequest(
+    val status: String
 )
 
 data class ChallengeDto(

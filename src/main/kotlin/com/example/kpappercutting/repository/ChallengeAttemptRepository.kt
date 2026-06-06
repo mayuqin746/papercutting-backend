@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository
 @Repository
 interface ChallengeAttemptRepository : JpaRepository<ChallengeAttempt, Long> {
     fun findByChallengeIdAndUserId(challengeId: Long, userId: Long): ChallengeAttempt?
+    fun deleteByChallengeId(challengeId: Long)
 }
