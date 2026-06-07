@@ -19,6 +19,8 @@ class WebConfig(
     override fun addResourceHandlers(registry: ResourceHandlerRegistry) {
         registry.addResourceHandler("/images/**")
             .addResourceLocations("file:/home/ubuntu/kp_uploads/")
+        registry.addResourceHandler("/videos/**")
+            .addResourceLocations("file:/home/ubuntu/kp_videos/")
         registry.addResourceHandler("/drafts/**")
             .addResourceLocations("file:/home/ubuntu/kp_drafts/")
         registry.addResourceHandler("/user-drafts/**")

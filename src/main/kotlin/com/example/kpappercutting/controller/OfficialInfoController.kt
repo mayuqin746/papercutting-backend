@@ -135,12 +135,21 @@ class OfficialInfoController(
         return saveUploadedImage(file)
     }
 
+    @PostMapping("/admin/upload-video")
+    fun uploadOfficialInfoVideo(@RequestParam("video") file: MultipartFile): ResponseEntity<Any> {
+        return saveUploadedVideo(file)
+    }
+
     private fun validateRequest(request: OfficialInfoRequest): String? {
         if (request.title.isBlank()) return "标题不能为空"
         if (request.summary.isBlank()) return "摘要不能为空"
         if (request.content.isBlank()) return "正文不能为空"
         if (!request.coverImageUrl.trim().startsWith("/images/") && !request.coverImageUrl.trim().startsWith("http")) {
             return "封面图不能为空"
+        }
+        val videoUrl = request.videoUrl.trim()
+        if (videoUrl.isNotBlank() && !videoUrl.startsWith("/videos/")) {
+            return "视频请通过后台上传"
         }
         return null
     }
