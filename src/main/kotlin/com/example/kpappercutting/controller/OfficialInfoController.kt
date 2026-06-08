@@ -1,5 +1,6 @@
 package com.example.kpappercutting.controller
 
+import com.example.kpappercutting.config.UploadStorageProperties
 import com.example.kpappercutting.model.OFFICIAL_INFO_CATEGORIES
 import com.example.kpappercutting.model.OFFICIAL_INFO_STATUS_ARCHIVED
 import com.example.kpappercutting.model.OFFICIAL_INFO_STATUS_PUBLISHED
@@ -26,7 +27,8 @@ import java.time.LocalDateTime
 @RestController
 @RequestMapping("/api/official-info")
 class OfficialInfoController(
-    private val officialInfoRepository: OfficialInfoRepository
+    private val officialInfoRepository: OfficialInfoRepository,
+    private val uploadStorage: UploadStorageProperties
 ) {
     @GetMapping("/home")
     fun getHomeOfficialInfo(): List<OfficialInfoDto> {
@@ -132,12 +134,12 @@ class OfficialInfoController(
 
     @PostMapping("/admin/upload")
     fun uploadOfficialInfoCover(@RequestParam("image") file: MultipartFile): ResponseEntity<Any> {
-        return saveUploadedImage(file)
+        return saveUploadedImage(file, uploadStorage.imageDir)
     }
 
     @PostMapping("/admin/upload-video")
     fun uploadOfficialInfoVideo(@RequestParam("video") file: MultipartFile): ResponseEntity<Any> {
-        return saveUploadedVideo(file)
+        return saveUploadedVideo(file, uploadStorage.videoDir)
     }
 
     private fun validateRequest(request: OfficialInfoRequest): String? {

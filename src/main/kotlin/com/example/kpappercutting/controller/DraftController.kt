@@ -1,5 +1,6 @@
 package com.example.kpappercutting.controller
 
+import com.example.kpappercutting.config.UploadStorageProperties
 import com.example.kpappercutting.model.UserDraft
 import com.example.kpappercutting.repository.UserDraftRepository
 import com.example.kpappercutting.repository.UserRepository
@@ -25,7 +26,8 @@ import java.util.UUID
 @RequestMapping("/api/drafts")
 class DraftController(
     private val draftRepository: UserDraftRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val uploadStorage: UploadStorageProperties
 ) {
     @GetMapping
     fun listDrafts(
@@ -103,7 +105,7 @@ class DraftController(
         val authUserId = request.currentUserId()
         val draft = draftRepository.findByDraftIdAndUserId(draftId, authUserId)
             ?: return ResponseEntity.status(404).body(mapOf("message" to "草稿不存在"))
-        val file = File(USER_DRAFT_ROOT, "${draft.user?.id}/${draft.draftId}/draft.zip")
+        val file = File(uploadStorage.userDraftDir, "${draft.user?.id}/${draft.draftId}/draft.zip")
         if (!file.exists()) {
             return ResponseEntity.status(404).body(mapOf("message" to "草稿文件不存在"))
         }
@@ -141,7 +143,7 @@ class DraftController(
         val existing = draftRepository.findByDraftIdAndUserId(draftId, authUserId)
             ?: return ResponseEntity.status(404).body(mapOf("message" to "草稿不存在"))
         draftRepository.delete(existing)
-        File(USER_DRAFT_ROOT, "$authUserId/$draftId").deleteRecursively()
+        File(uploadStorage.userDraftDir, "$authUserId/$draftId").deleteRecursively()
         return ResponseEntity.ok(mapOf("message" to "删除成功"))
     }
 
@@ -167,7 +169,7 @@ class DraftController(
             return ResponseEntity.status(404).body(mapOf("message" to "草稿不存在"))
         }
 
-        val draftDir = File(USER_DRAFT_ROOT, "$userId/$draftId").apply { mkdirs() }
+        val draftDir = File(uploadStorage.userDraftDir, "$userId/$draftId").apply { mkdirs() }
         val draftDest = File(draftDir, "draft.zip")
         val thumbnailDest = File(draftDir, "thumbnail.png")
         draftFile.transferTo(draftDest)
@@ -219,8 +221,4 @@ class DraftController(
         val canvasMode: String,
         val isFolded: Boolean
     )
-
-    companion object {
-        private const val USER_DRAFT_ROOT = "/home/ubuntu/kp_user_drafts"
-    }
 }

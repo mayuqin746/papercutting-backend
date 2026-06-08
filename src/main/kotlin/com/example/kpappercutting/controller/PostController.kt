@@ -1,5 +1,6 @@
 package com.example.kpappercutting.controller
 
+import com.example.kpappercutting.config.UploadStorageProperties
 import com.example.kpappercutting.model.Post
 import com.example.kpappercutting.model.InteractionNotification
 import com.example.kpappercutting.model.NOTIFICATION_TYPE_LIKE
@@ -47,7 +48,8 @@ class PostController(
     private val challengeRepository: ChallengeRepository,
     private val challengeAttemptRepository: ChallengeAttemptRepository,
     private val challengeParticipantRepository: ChallengeParticipantRepository,
-    private val postReportRepository: PostReportRepository
+    private val postReportRepository: PostReportRepository,
+    private val uploadStorage: UploadStorageProperties
 ) {
 
     @GetMapping("/all")
@@ -237,9 +239,7 @@ class PostController(
                 return ResponseEntity.badRequest().body(mapOf("message" to "上传文件不能为空"))
             }
 
-            // 云服务器 Ubuntu 上的图片保存目录
-            val uploadDirPath = "/home/ubuntu/kp_uploads"
-            val uploadDir = File(uploadDirPath).apply {
+            val uploadDir = uploadStorage.imageDir.apply {
                 if (!exists()) mkdirs()
             }
 
@@ -283,7 +283,7 @@ class PostController(
                 return ResponseEntity.badRequest().body(mapOf("message" to "只支持 ZIP 草稿文件"))
             }
 
-            val uploadDir = File("/home/ubuntu/kp_drafts").apply {
+            val uploadDir = uploadStorage.postDraftDir.apply {
                 if (!exists()) mkdirs()
             }
             val fileName = "${UUID.randomUUID()}.zip"
@@ -542,7 +542,7 @@ class PostController(
         val fileName = imageUrl.removePrefix("/images/")
         if (fileName.contains("/") || fileName.contains("\\")) return
 
-        val file = File("/home/ubuntu/kp_uploads", fileName)
+        val file = File(uploadStorage.imageDir, fileName)
 
         if (file.exists() && file.isFile) {
             file.delete()
@@ -552,7 +552,7 @@ class PostController(
     private fun deleteLocalDraft(draftUrl: String?) {
         val safeDraftUrl = sanitizeDraftUrl(draftUrl) ?: return
         val fileName = safeDraftUrl.removePrefix("/drafts/")
-        val file = File("/home/ubuntu/kp_drafts", fileName)
+        val file = File(uploadStorage.postDraftDir, fileName)
         if (file.exists() && file.isFile) {
             file.delete()
         }

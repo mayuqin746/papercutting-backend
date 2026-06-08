@@ -8,7 +8,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 
 @Configuration
 class WebConfig(
-    private val authInterceptor: AuthInterceptor
+    private val authInterceptor: AuthInterceptor,
+    private val uploadStorage: UploadStorageProperties
 ) : WebMvcConfigurer {
 
     override fun addInterceptors(registry: InterceptorRegistry) {
@@ -18,14 +19,18 @@ class WebConfig(
 
     override fun addResourceHandlers(registry: ResourceHandlerRegistry) {
         registry.addResourceHandler("/images/**")
-            .addResourceLocations("file:/home/ubuntu/kp_uploads/")
+            .addResourceLocations(uploadStorage.resourceLocation(uploadStorage.imageDir))
+
         registry.addResourceHandler("/videos/**")
-            .addResourceLocations("file:/home/ubuntu/kp_videos/")
+            .addResourceLocations(uploadStorage.resourceLocation(uploadStorage.videoDir))
+
         registry.addResourceHandler("/drafts/**")
-            .addResourceLocations("file:/home/ubuntu/kp_drafts/")
+            .addResourceLocations(uploadStorage.resourceLocation(uploadStorage.postDraftDir))
+
         registry.addResourceHandler("/user-drafts/**")
-            .addResourceLocations("file:/home/ubuntu/kp_user_drafts/")
+            .addResourceLocations(uploadStorage.resourceLocation(uploadStorage.userDraftDir))
+
         registry.addResourceHandler("/custom-patterns/**")
-            .addResourceLocations("file:/home/ubuntu/kp_custom_patterns/")
+            .addResourceLocations(uploadStorage.resourceLocation(uploadStorage.customPatternDir))
     }
 }

@@ -1,6 +1,7 @@
 //后端接口，负责接手机传来的单子（登录/注册），去查底账。
 package com.example.kpappercutting.controller
 
+import com.example.kpappercutting.config.UploadStorageProperties
 import com.example.kpappercutting.model.User
 import com.example.kpappercutting.repository.UserRepository
 import com.example.kpappercutting.security.JwtService
@@ -18,7 +19,8 @@ import java.util.UUID
 class AuthController(
     private val userRepository: UserRepository,
     private val jwtService: JwtService,
-    private val passwordEncoder: BCryptPasswordEncoder
+    private val passwordEncoder: BCryptPasswordEncoder,
+    private val uploadStorage: UploadStorageProperties
 ) {
 
     @PostMapping("/login")
@@ -112,9 +114,7 @@ class AuthController(
                 return ResponseEntity.badRequest().body(mapOf("message" to "上传文件不能为空"))
             }
 
-            // 云服务器 Ubuntu 上的图片保存目录
-            val uploadDirPath = "/home/ubuntu/kp_uploads"
-            val uploadDir = File(uploadDirPath).apply {
+            val uploadDir = uploadStorage.imageDir.apply {
                 if (!exists()) mkdirs()
             }
 

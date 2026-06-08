@@ -1,5 +1,6 @@
 package com.example.kpappercutting.controller
 
+import com.example.kpappercutting.config.UploadStorageProperties
 import com.example.kpappercutting.model.UserCustomPattern
 import com.example.kpappercutting.repository.UserCustomPatternRepository
 import com.example.kpappercutting.repository.UserRepository
@@ -22,7 +23,8 @@ import java.util.UUID
 @RequestMapping("/api/custom-patterns")
 class CustomPatternController(
     private val customPatternRepository: UserCustomPatternRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val uploadStorage: UploadStorageProperties
 ) {
     @GetMapping
     fun listPatterns(
@@ -56,7 +58,7 @@ class CustomPatternController(
 
         val resolvedPatternId = patternId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val existing = customPatternRepository.findByPatternIdAndUserId(resolvedPatternId, authUserId)
-        val patternDir = File(CUSTOM_PATTERN_ROOT, "$authUserId/$resolvedPatternId").apply { mkdirs() }
+        val patternDir = File(uploadStorage.customPatternDir, "$authUserId/$resolvedPatternId").apply { mkdirs() }
         val imageUrl = if (imageFile != null && !imageFile.isEmpty) {
             val extension = when {
                 imageFile.contentType?.contains("png") == true -> "png"
@@ -98,7 +100,7 @@ class CustomPatternController(
         val existing = customPatternRepository.findByPatternIdAndUserId(patternId, authUserId)
             ?: return ResponseEntity.status(404).body(mapOf("message" to "图案不存在"))
         customPatternRepository.delete(existing)
-        File(CUSTOM_PATTERN_ROOT, "$authUserId/$patternId").deleteRecursively()
+        File(uploadStorage.customPatternDir, "$authUserId/$patternId").deleteRecursively()
         return ResponseEntity.ok(mapOf("message" to "删除成功"))
     }
 
@@ -123,8 +125,4 @@ class CustomPatternController(
         val createdAt: Long,
         val updatedAt: Long
     )
-
-    companion object {
-        private const val CUSTOM_PATTERN_ROOT = "/home/ubuntu/kp_custom_patterns"
-    }
 }

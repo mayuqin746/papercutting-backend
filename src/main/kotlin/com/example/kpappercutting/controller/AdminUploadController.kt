@@ -1,5 +1,6 @@
 package com.example.kpappercutting.controller
 
+import com.example.kpappercutting.config.UploadStorageProperties
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.PostMapping
@@ -14,19 +15,21 @@ import java.util.UUID
 @CrossOrigin
 @RestController
 @RequestMapping("/api/admin/uploads")
-class AdminUploadController {
+class AdminUploadController(
+    private val uploadStorage: UploadStorageProperties
+) {
     @PostMapping("/images")
     fun uploadImage(@RequestParam("image") file: MultipartFile): ResponseEntity<Any> {
-        return saveUploadedImage(file)
+        return saveUploadedImage(file, uploadStorage.imageDir)
     }
 
     @PostMapping("/videos")
     fun uploadVideo(@RequestParam("video") file: MultipartFile): ResponseEntity<Any> {
-        return saveUploadedVideo(file)
+        return saveUploadedVideo(file, uploadStorage.videoDir)
     }
 }
 
-fun saveUploadedImage(file: MultipartFile): ResponseEntity<Any> {
+fun saveUploadedImage(file: MultipartFile, uploadTargetDir: File): ResponseEntity<Any> {
     return try {
         if (file.isEmpty) {
             return ResponseEntity.badRequest().body(mapOf("message" to "上传文件不能为空"))
@@ -41,7 +44,7 @@ fun saveUploadedImage(file: MultipartFile): ResponseEntity<Any> {
             return ResponseEntity.badRequest().body(mapOf("message" to "只支持 jpg、jpeg、png、webp、gif 图片格式"))
         }
 
-        val uploadDir = File("/home/ubuntu/kp_uploads").apply {
+        val uploadDir = uploadTargetDir.apply {
             if (!exists()) mkdirs()
         }
         val fileName = "${UUID.randomUUID()}.$extension"
@@ -53,7 +56,7 @@ fun saveUploadedImage(file: MultipartFile): ResponseEntity<Any> {
     }
 }
 
-fun saveUploadedVideo(file: MultipartFile): ResponseEntity<Any> {
+fun saveUploadedVideo(file: MultipartFile, uploadTargetDir: File): ResponseEntity<Any> {
     return try {
         if (file.isEmpty) {
             return ResponseEntity.badRequest().body(mapOf("message" to "上传文件不能为空"))
@@ -68,7 +71,7 @@ fun saveUploadedVideo(file: MultipartFile): ResponseEntity<Any> {
             return ResponseEntity.badRequest().body(mapOf("message" to "只支持 mp4、m4v、3gp 视频格式，建议使用 H.264/AAC 编码"))
         }
 
-        val uploadDir = File("/home/ubuntu/kp_videos").apply {
+        val uploadDir = uploadTargetDir.apply {
             if (!exists()) mkdirs()
         }
         val fileName = "${UUID.randomUUID()}.$extension"
