@@ -29,12 +29,13 @@ class AuthController(
         val password = loginRequest.password
 
         val user = userRepository.findByUsername(username)
+            ?: return ResponseEntity.status(404).body(mapOf("message" to "该账号未注册"))
 
-        return if (user != null && verifyPassword(user, password)) {
+        return if (verifyPassword(user, password)) {
             val securedUser = migrateLegacyPasswordIfNeeded(user, password)
             ResponseEntity.ok(securedUser.toAuthResponse())
         } else {
-            ResponseEntity.status(401).body(mapOf("message" to "用户名或密码错误"))
+            ResponseEntity.status(401).body(mapOf("message" to "密码错误，请重新输入"))
         }
     }
 
