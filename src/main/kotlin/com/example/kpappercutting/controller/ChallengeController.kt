@@ -191,6 +191,7 @@ class ChallengeController(
             challenge = toChallengeDto(challenge),
             isExpired = now.isAfter(challenge.deadline),
             participantCount = challengeParticipantRepository.countByChallengeId(challenge.id).toInt(),
+            participantAvatarUrls = randomParticipantAvatarUrls(challenge.id),
             userStatus = when {
                 hasParticipated -> "PARTICIPATED"
                 hasAttempted -> "ATTEMPTED"
@@ -219,6 +220,23 @@ class ChallengeController(
             deadline = challenge.deadline,
             status = challenge.status
         )
+    }
+
+    private fun randomParticipantAvatarUrls(challengeId: Long): List<String> {
+        val userIds = challengeParticipantRepository.findByChallengeId(challengeId)
+            .map { it.userId }
+            .distinct()
+            .shuffled()
+        if (userIds.isEmpty()) return emptyList()
+
+        val usersById = userRepository.findAllById(userIds).associateBy { it.id }
+        return userIds
+            .mapNotNull { userId ->
+                usersById[userId]?.avatarUrl
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            }
+            .take(3)
     }
 
     private fun validateChallengeRequest(request: ChallengeRequest): String? {
@@ -305,6 +323,7 @@ data class CurrentChallengeResponse(
     val challenge: ChallengeDto?,
     val isExpired: Boolean = true,
     val participantCount: Int = 0,
+    val participantAvatarUrls: List<String> = emptyList(),
     val userStatus: String = "NONE"
 )
 
