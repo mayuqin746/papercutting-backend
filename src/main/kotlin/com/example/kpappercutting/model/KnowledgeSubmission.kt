@@ -37,7 +37,7 @@ data class KnowledgeSubmission(
     @Column(columnDefinition = "TEXT")
     val answerExplanation: String = "",
     @Column(columnDefinition = "TEXT")
-    val imageUrls: String = "",
+    val imageUrls: String? = null,
     @Column(length = 30)
     var status: String = "PENDING",
     @Column(columnDefinition = "TEXT")

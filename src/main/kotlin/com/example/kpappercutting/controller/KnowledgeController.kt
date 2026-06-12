@@ -110,18 +110,6 @@ class KnowledgeController(
 
         val existing = readRecordRepository.findByUserIdAndKnowledgeId(userId, knowledgeId)
         if (existing == null) {
-            val todayReadCount = todayReadCount(userId)
-            if (todayReadCount >= KNOWLEDGE_DAILY_LIMIT) {
-                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(
-                    KnowledgeOpenResponse(
-                        success = false,
-                        message = "今日已完成5个科普打卡，明天再来",
-                        todayReadCount = todayReadCount.toInt(),
-                        dailyLimit = KNOWLEDGE_DAILY_LIMIT,
-                        canOpenMore = false
-                    )
-                )
-            }
             readRecordRepository.save(UserReadRecord(userId = userId, knowledgeId = knowledgeId, readAt = LocalDateTime.now(appZone)))
         }
 
@@ -153,9 +141,7 @@ class KnowledgeController(
             )
         }
         if (readRecordRepository.findByUserIdAndKnowledgeId(userId, request.knowledgeId) == null) {
-            return ResponseEntity.badRequest().body(
-                KnowledgeAnswerResponse(success = false, message = "请先阅读该科普知识")
-            )
+            readRecordRepository.save(UserReadRecord(userId = userId, knowledgeId = request.knowledgeId, readAt = LocalDateTime.now(appZone)))
         }
         if (request.answer.isBlank()) {
             return ResponseEntity.badRequest().body(
@@ -265,6 +251,21 @@ class KnowledgeController(
         return submissionRepository.findByUserIdOrderByCreateTimeDesc(request.currentUserId()).map(::toSubmissionDto)
     }
 
+    @DeleteMapping("/submissions/{submissionId}")
+    fun deleteSubmission(
+        request: HttpServletRequest,
+        @PathVariable submissionId: Long
+    ): ResponseEntity<Any> {
+        val authUserId = request.currentUserId()
+        val submission = submissionRepository.findById(submissionId).orElse(null)
+            ?: return ResponseEntity.notFound().build()
+        if (submission.userId != authUserId) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("只能删除自己的投稿")
+        }
+        submissionRepository.delete(submission)
+        return ResponseEntity.ok(mapOf("success" to true))
+    }
+
     @GetMapping("/admin/submissions")
     fun getAdminSubmissions(
         @RequestParam(required = false) status: String?,
@@ -308,6 +309,7 @@ class KnowledgeController(
             optionsJson = normalizeOptionsJson(request.optionsJson, request.questionType),
             answer = request.answer.trim(),
             answerExplanation = request.answerExplanation.trim(),
+            imageUrls = normalizeImageUrls(request.imageUrls),
             sourceType = KNOWLEDGE_SOURCE_OFFICIAL,
             status = normalizeKnowledgeStatus(request.status)
         )
@@ -334,6 +336,7 @@ class KnowledgeController(
             optionsJson = normalizeOptionsJson(request.optionsJson, request.questionType),
             answer = request.answer.trim(),
             answerExplanation = request.answerExplanation.trim(),
+            imageUrls = normalizeImageUrls(request.imageUrls),
             status = normalizeKnowledgeStatus(request.status)
         )
 
@@ -381,6 +384,7 @@ class KnowledgeController(
                     optionsJson = submission.optionsJson,
                     answer = submission.answer,
                     answerExplanation = submission.answerExplanation,
+                    imageUrls = submission.imageUrls.orEmpty(),
                     sourceType = KNOWLEDGE_SOURCE_USER,
                     status = KNOWLEDGE_STATUS_PUBLISHED,
                     authorSubmissionId = submission.id
@@ -393,6 +397,7 @@ class KnowledgeController(
                     optionsJson = submission.optionsJson,
                     answer = submission.answer,
                     answerExplanation = submission.answerExplanation,
+                    imageUrls = submission.imageUrls.orEmpty(),
                     sourceType = KNOWLEDGE_SOURCE_USER,
                     status = KNOWLEDGE_STATUS_PUBLISHED,
                     authorSubmissionId = submission.id
@@ -445,6 +450,7 @@ class KnowledgeController(
             optionsJson = knowledge.optionsJson,
             answer = knowledge.answer,
             answerExplanation = knowledge.answerExplanation,
+            imageUrls = knowledge.imageUrls.orEmpty(),
             isRead = isCollected,
             isOpened = isOpened,
             isCollected = isCollected,
@@ -465,7 +471,7 @@ class KnowledgeController(
             optionsJson = submission.optionsJson,
             answer = submission.answer,
             answerExplanation = submission.answerExplanation,
-            imageUrls = submission.imageUrls,
+            imageUrls = submission.imageUrls.orEmpty(),
             status = submission.status,
             reviewNote = submission.reviewNote,
             createTime = submission.createTime,
@@ -484,6 +490,7 @@ class KnowledgeController(
             optionsJson = knowledge.optionsJson,
             answer = knowledge.answer,
             answerExplanation = knowledge.answerExplanation,
+            imageUrls = knowledge.imageUrls.orEmpty(),
             sourceType = knowledge.sourceType,
             status = knowledge.status,
             authorSubmissionId = knowledge.authorSubmissionId,
@@ -530,8 +537,8 @@ class KnowledgeController(
         return rawOptionsJson.trim()
     }
 
-    private fun normalizeImageUrls(rawImageUrls: String): String {
-        return rawImageUrls.split(",")
+    private fun normalizeImageUrls(rawImageUrls: String?): String {
+        return rawImageUrls.orEmpty().split(",")
             .map { it.trim() }
             .filter { it.startsWith("/images/") }
             .distinct()
@@ -629,6 +636,7 @@ data class KnowledgeDto(
     val optionsJson: String,
     val answer: String,
     val answerExplanation: String,
+    val imageUrls: String,
     val isRead: Boolean,
     val isOpened: Boolean,
     val isCollected: Boolean,
@@ -686,6 +694,7 @@ data class AdminKnowledgeRequest(
     val optionsJson: String = "",
     val answer: String,
     val answerExplanation: String,
+    val imageUrls: String? = "",
     val status: String = KNOWLEDGE_STATUS_PUBLISHED
 )
 
@@ -703,6 +712,7 @@ data class AdminKnowledgeDto(
     val optionsJson: String,
     val answer: String,
     val answerExplanation: String,
+    val imageUrls: String,
     val sourceType: String,
     val status: String,
     val authorSubmissionId: Long?,
@@ -719,7 +729,7 @@ data class KnowledgeSubmissionRequest(
     val optionsJson: String = "",
     val answer: String,
     val answerExplanation: String,
-    val imageUrls: String = ""
+    val imageUrls: String? = ""
 )
 
 data class KnowledgeSubmissionReviewRequest(

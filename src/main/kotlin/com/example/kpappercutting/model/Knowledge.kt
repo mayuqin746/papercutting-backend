@@ -28,6 +28,8 @@ data class Knowledge(
     val answer: String = "",
     @Column(columnDefinition = "TEXT")
     val answerExplanation: String = "",
+    @Column(columnDefinition = "TEXT")
+    val imageUrls: String? = null,
     @Column(length = 30)
     val sourceType: String = "OFFICIAL",
     @Column(length = 30)
